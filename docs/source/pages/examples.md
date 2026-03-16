@@ -1,5 +1,9 @@
 # Examples
 
+The following Jupyter notebooks walk through complete *ospgrillage* workflows — from
+model creation through analysis to post-processing. They can be run interactively
+or viewed as rendered HTML.
+
 ```{toctree}
 :maxdepth: 1
 

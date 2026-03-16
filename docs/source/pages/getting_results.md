@@ -9,7 +9,7 @@ import ospgrillage as og
 ## Extracting results
 
 After analysis, results are obtained using
-{func}`~ospgrillage.osp_grillage.OspGrillage.get_results`.
+{meth}`~ospgrillage.osp_grillage.OspGrillage.get_results`.
 
 ```python
 all_result   = example_bridge.get_results()
@@ -121,7 +121,7 @@ DataArrays, see the
 ## Getting combinations
 
 Load combinations are computed on the fly in
-{func}`~ospgrillage.osp_grillage.OspGrillage.get_results` by passing a `combinations`
+{meth}`~ospgrillage.osp_grillage.OspGrillage.get_results` by passing a `combinations`
 dictionary: keys are load case name strings and values are load factors.
 *ospgrillage* multiplies each load case by its factor and sums the results.
 
@@ -181,12 +181,12 @@ For more options see {func}`~ospgrillage.postprocessing.create_envelope`.
 
 ### Node
 
-Use {func}`~ospgrillage.osp_grillage.OspGrillage.get_nodes` to retrieve node
+Use {meth}`~ospgrillage.osp_grillage.OspGrillage.get_nodes` to retrieve node
 information from the model.
 
 ### Element
 
-Use {func}`~ospgrillage.osp_grillage.OspGrillage.get_element` to query element
+Use {meth}`~ospgrillage.osp_grillage.OspGrillage.get_element` to query element
 properties and tags from the model.
 
 ## Plotting results
@@ -251,8 +251,28 @@ plotting all main beams when no `member` is specified:
 ```python
 og.plot_bmd(bridge_28, results)          # bending moment diagram (Mz)
 og.plot_sfd(bridge_28, results)          # shear force diagram (Fy)
-og.plot_deflection(bridge_28, results)   # vertical deflection (y)
+og.plot_def(bridge_28, results)   # vertical deflection (y)
 ```
 
 Each returns a list of figures (one per main beam member group).  Pass
 `member="interior_main_beam"` to plot a single member instead.
+
+### Interactive 3D plots (Plotly)
+
+For interactive rotation — especially useful in Jupyter notebooks — pass
+`backend="plotly"`:
+
+```bash
+pip install ospgrillage[gui]   # includes plotly
+```
+
+```python
+og.plot_bmd(bridge_28, results, backend="plotly")
+og.plot_sfd(bridge_28, results, backend="plotly")
+og.plot_def(bridge_28, results, backend="plotly")
+```
+
+Each returns a single [Plotly](https://plotly.com/python/) `Figure` that
+renders interactively in Jupyter notebooks and in browser windows from the
+terminal.  The figure can be further customised using the standard Plotly
+API.  The GUI auto-detects plotly and uses it by default when available.

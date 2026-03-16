@@ -305,8 +305,8 @@ def test_plot_sfd(bridge_model_42_negative):
     assert len(figs) >= 1
 
 
-def test_plot_deflection(bridge_model_42_negative):
-    """plot_deflection returns a figure for a single member and a list for all."""
+def test_plot_def(bridge_model_42_negative):
+    """plot_def returns a figure for a single member and a list for all."""
     og.ops.wipeAnalysis()
     example_bridge = bridge_model_42_negative
 
@@ -319,9 +319,103 @@ def test_plot_deflection(bridge_model_42_negative):
     example_bridge.analyze()
     results = example_bridge.get_results(local_forces=False)
 
-    fig = og.plot_deflection(example_bridge, results, member="interior_main_beam")
+    fig = og.plot_def(example_bridge, results, member="interior_main_beam")
     assert fig is not None
 
-    figs = og.plot_deflection(example_bridge, results)
+    figs = og.plot_def(example_bridge, results)
     assert isinstance(figs, list)
     assert len(figs) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Plotly backend tests
+# ---------------------------------------------------------------------------
+def test_plot_bmd_plotly(bridge_model_42_negative):
+    """plot_bmd with backend='plotly' returns a plotly Figure."""
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(load_obj=front_wheel)
+    example_bridge.add_load_case(lc)
+    example_bridge.analyze()
+    results = example_bridge.get_results(local_forces=False)
+
+    fig = og.plot_bmd(example_bridge, results, backend="plotly")
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0  # has traces
+
+
+def test_plot_sfd_plotly(bridge_model_42_negative):
+    """plot_sfd with backend='plotly' returns a plotly Figure."""
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(load_obj=front_wheel)
+    example_bridge.add_load_case(lc)
+    example_bridge.analyze()
+    results = example_bridge.get_results(local_forces=False)
+
+    fig = og.plot_sfd(example_bridge, results, backend="plotly")
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+
+def test_plot_def_plotly(bridge_model_42_negative):
+    """plot_def with backend='plotly' returns a plotly Figure."""
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(load_obj=front_wheel)
+    example_bridge.add_load_case(lc)
+    example_bridge.analyze()
+    results = example_bridge.get_results(local_forces=False)
+
+    fig = og.plot_def(example_bridge, results, backend="plotly")
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+
+def test_plotly_single_member(bridge_model_42_negative):
+    """plot_bmd with plotly and a single member should return a Figure."""
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(load_obj=front_wheel)
+    example_bridge.add_load_case(lc)
+    example_bridge.analyze()
+    results = example_bridge.get_results(local_forces=False)
+
+    fig = og.plot_bmd(
+        example_bridge, results, member="interior_main_beam", backend="plotly"
+    )
+    assert isinstance(fig, go.Figure)
+
+
+def test_plotly_import_error():
+    """When plotly is unavailable, backend='plotly' should raise ImportError."""
+    from unittest.mock import patch
+    from ospgrillage.postprocessing import _import_plotly
+
+    with patch.dict("sys.modules", {"plotly": None, "plotly.graph_objects": None}):
+        with pytest.raises(ImportError, match="ospgrillage\\[gui\\]"):
+            _import_plotly()

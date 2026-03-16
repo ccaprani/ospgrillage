@@ -12,7 +12,7 @@ Factory functions
    ~ospgrillage.postprocessing.plot_defo
    ~ospgrillage.postprocessing.plot_bmd
    ~ospgrillage.postprocessing.plot_sfd
-   ~ospgrillage.postprocessing.plot_deflection
+   ~ospgrillage.postprocessing.plot_def
 
 Class reference
 ---------------

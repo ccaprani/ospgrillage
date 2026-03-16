@@ -26,8 +26,24 @@ __all__ = [
     "plot_defo",
     "plot_bmd",
     "plot_sfd",
-    "plot_deflection",
+    "plot_def",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Lazy import for optional plotly dependency
+# ---------------------------------------------------------------------------
+def _import_plotly():
+    """Lazy-import plotly; raise a clear error if missing."""
+    try:
+        import plotly.graph_objects as go
+
+        return go
+    except ImportError:
+        raise ImportError(
+            "plotly is required for interactive plots. "
+            "Install it with: pip install ospgrillage[gui]"
+        )
 
 
 def create_envelope(**kwargs):
@@ -158,6 +174,275 @@ class Envelope:
         return getattr(da, self.selected_xarray_command)(dim="Loadcase")
 
 
+# ---------------------------------------------------------------------------
+# Force component lookup tables
+# ---------------------------------------------------------------------------
+_FORCE_COMP_DICT = {"Fx": 0, "Fy": 1, "Fz": 2, "Mx": 3, "My": 4, "Mz": 5}
+_FORCE_COMP_FACTOR = {"Fx": 1, "Fy": 1, "Fz": 1, "Mx": 1, "My": 1, "Mz": -1}
+
+_FORCE_COMPONENTS = [
+    "Vx_i", "Vy_i", "Vz_i", "Mx_i", "My_i", "Mz_i",
+    "Vx_j", "Vy_j", "Vz_j", "Mx_j", "My_j", "Mz_j",
+]
+
+
+# ---------------------------------------------------------------------------
+# Data extraction helpers (backend-agnostic)
+# ---------------------------------------------------------------------------
+def _extract_force_data(ospgrillage_obj, result_obj, component, member,
+                        loadcase=None, option="elements"):
+    """Extract force distribution data for a single member.
+
+    Iterates over every element in the requested *member* group, calls
+    :func:`opsvis.section_force_distribution_3d` for each, and collects the
+    results into three parallel lists.
+
+    :param ospgrillage_obj: Grillage model object.
+    :type ospgrillage_obj: OspGrillage
+    :param result_obj: xarray DataSet of analysis results.
+    :param component: Force component name (``"Fx"``, ``"Fy"``, ``"Fz"``,
+        ``"Mx"``, ``"My"``, ``"Mz"``) or integer index.
+    :param member: Member group name string.
+    :param loadcase: Load case name.  ``None`` uses the first load case.
+    :param option: Element query option passed to
+        :meth:`~ospgrillage.osp_grillage.OspGrillage.get_element`.
+    :returns: ``(all_xx, all_zz, all_values)`` — each a list of
+        per-element :class:`numpy.ndarray`.  ``all_values`` entries are
+        already multiplied by the component sign factor.
+    :rtype: tuple[list, list, list]
+    """
+    comp_index = component if isinstance(component, int) else _FORCE_COMP_DICT[component]
+    factor = _FORCE_COMP_FACTOR[component] if isinstance(component, str) else 1
+
+    nodes = ospgrillage_obj.get_nodes()
+    eletag = ospgrillage_obj.get_element(member=member, options=option)
+
+    if ospgrillage_obj.model_type == "shell_beam":
+        force_result = result_obj.forces_beam
+    else:
+        force_result = result_obj.forces
+
+    all_xx, all_zz, all_values = [], [], []
+
+    for ele in eletag:
+        # get force components for this element
+        if loadcase:
+            ele_components = force_result.sel(
+                Loadcase=loadcase, Element=ele, Component=_FORCE_COMPONENTS,
+            ).values
+        else:
+            ele_components = force_result.sel(
+                Element=ele, Component=_FORCE_COMPONENTS,
+            )[0].values
+
+        # get nodes of element
+        if ospgrillage_obj.model_type == "shell_beam":
+            ele_node = result_obj.ele_nodes_shell.sel(Element=ele)
+            if all(np.isnan(result_obj.ele_nodes_shell.sel(Element=ele))):
+                ele_node = result_obj.ele_nodes_beam.sel(Element=ele)
+            ele_node = ele_node[~np.isnan(ele_node)]
+        else:
+            ele_node = result_obj.ele_nodes.sel(Element=ele)
+
+        xx = [nodes[n]["coordinate"][0] for n in ele_node.values]
+        yy = [nodes[n]["coordinate"][1] for n in ele_node.values]
+        zz = [nodes[n]["coordinate"][2] for n in ele_node.values]
+
+        # opsvis section force distribution
+        s, *_ = opsv.section_force_distribution_3d(
+            ecrd=np.column_stack([xx, yy, zz]),
+            pl=ele_components,
+        )
+
+        all_xx.append(np.array(xx))
+        all_zz.append(np.array(zz))
+        all_values.append(s[:, comp_index] * factor)
+
+    return all_xx, all_zz, all_values
+
+
+def _extract_defo_data(ospgrillage_obj, result_obj, member, component="y",
+                       loadcase=None, option="nodes"):
+    """Extract displacement data for a single member.
+
+    Iterates over the nodes belonging to *member* and collects their
+    coordinates and displacement values.
+
+    :param ospgrillage_obj: Grillage model object.
+    :type ospgrillage_obj: OspGrillage
+    :param result_obj: xarray DataSet of analysis results.
+    :param member: Member group name string.
+    :param component: Displacement component (``"x"``, ``"y"``, ``"z"``).
+        Defaults to ``"y"`` (vertical deflection).
+    :param loadcase: Load case name.  ``None`` uses the first load case.
+    :param option: Node query option passed to
+        :meth:`~ospgrillage.osp_grillage.OspGrillage.get_element`.
+    :returns: ``(xx_list, zz_list, values_list)`` — node x-coordinates,
+        z-coordinates, and displacement scalars.
+    :rtype: tuple[list, list, list]
+    """
+    plot_option = option if option is not None else "nodes"
+    dis_comp = component if component is not None else "y"
+
+    nodes = ospgrillage_obj.get_nodes()
+    nodes_to_plot = ospgrillage_obj.get_element(member=member, options=plot_option)[0]
+
+    xx_list, zz_list, values_list = [], [], []
+
+    for node in nodes_to_plot:
+        if loadcase:
+            disp = result_obj.displacements.sel(
+                Component=dis_comp, Node=node, Loadcase=loadcase,
+            ).values
+        else:
+            disp = result_obj.displacements.sel(
+                Component=dis_comp, Node=node,
+            )[0].values
+        xx_list.append(nodes[node]["coordinate"][0])
+        zz_list.append(nodes[node]["coordinate"][2])
+        values_list.append(float(disp))
+
+    return xx_list, zz_list, values_list
+
+
+# ---------------------------------------------------------------------------
+# Plotly 3D figure builders
+# ---------------------------------------------------------------------------
+def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
+                     loadcase=None, comp_label=None):
+    """Build an interactive 3D Plotly figure of force diagrams.
+
+    Each member is drawn as a ``Scatter3d`` trace with:
+
+    * x = longitudinal position (m)
+    * y = transverse position (z-coordinate from the grillage model, m)
+    * z = force component value
+
+    Vertical drop-lines connect the diagram to a dotted zero-baseline so
+    the diagram shape is visible from any rotation angle.
+
+    :param ospgrillage_obj: Grillage model object.
+    :param result_obj: xarray DataSet of analysis results.
+    :param component: Force component name (e.g. ``"Mz"``, ``"Fy"``).
+    :param members: List of member group name strings to include.
+    :param loadcase: Load case name.  ``None`` uses the first load case.
+    :param comp_label: Axis / title label.  Defaults to *component*.
+    :returns: Interactive 3D figure.
+    :rtype: :class:`plotly.graph_objects.Figure`
+    """
+    go = _import_plotly()
+    fig = go.Figure()
+    label = comp_label or component
+
+    colours = ["black", "blue", "red", "green", "orange"]
+
+    for idx, member in enumerate(members):
+        all_xx, all_zz, all_vals = _extract_force_data(
+            ospgrillage_obj, result_obj, component, member, loadcase,
+        )
+        colour = colours[idx % len(colours)]
+
+        for ex, ez, ev in zip(all_xx, all_zz, all_vals):
+            # Force diagram line
+            fig.add_trace(go.Scatter3d(
+                x=ex, y=ez, z=ev,
+                mode="lines",
+                line=dict(color=colour, width=4),
+                name=member,
+                showlegend=False,
+            ))
+            # Baseline (zero) line
+            fig.add_trace(go.Scatter3d(
+                x=ex, y=ez, z=np.zeros_like(ev),
+                mode="lines",
+                line=dict(color=colour, width=1, dash="dot"),
+                showlegend=False,
+            ))
+            # Vertical drop-lines connecting diagram to baseline
+            for xi, zi, vi in zip(ex, ez, ev):
+                fig.add_trace(go.Scatter3d(
+                    x=[xi, xi], y=[zi, zi], z=[0, vi],
+                    mode="lines",
+                    line=dict(color=colour, width=1),
+                    showlegend=False,
+                ))
+
+        # One legend entry per member
+        fig.add_trace(go.Scatter3d(
+            x=[None], y=[None], z=[None],
+            mode="lines",
+            line=dict(color=colour, width=4),
+            name=member,
+        ))
+
+    fig.update_layout(
+        title=f"{label} Diagram",
+        scene=dict(
+            xaxis_title="x (m)",
+            yaxis_title="z (m)",
+            zaxis_title=label,
+        ),
+        legend_title="Member",
+    )
+    return fig
+
+
+def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
+                    loadcase=None):
+    """Build an interactive 3D Plotly figure of deflected shapes.
+
+    Each member is drawn as a ``Scatter3d`` trace with markers, accompanied
+    by a dotted zero-baseline.
+
+    :param ospgrillage_obj: Grillage model object.
+    :param result_obj: xarray DataSet of analysis results.
+    :param members: List of member group name strings to include.
+    :param component: Displacement component (default ``"y"``).
+    :param loadcase: Load case name.  ``None`` uses the first load case.
+    :returns: Interactive 3D figure.
+    :rtype: :class:`plotly.graph_objects.Figure`
+    """
+    go = _import_plotly()
+    fig = go.Figure()
+
+    colours = ["blue", "red", "green", "orange", "black"]
+
+    for idx, member in enumerate(members):
+        xx, zz, vals = _extract_defo_data(
+            ospgrillage_obj, result_obj, member, component, loadcase,
+        )
+        colour = colours[idx % len(colours)]
+
+        fig.add_trace(go.Scatter3d(
+            x=xx, y=zz, z=vals,
+            mode="lines+markers",
+            line=dict(color=colour, width=4),
+            marker=dict(size=3, color=colour),
+            name=member,
+        ))
+        # Baseline
+        fig.add_trace(go.Scatter3d(
+            x=xx, y=zz, z=[0.0] * len(vals),
+            mode="lines",
+            line=dict(color=colour, width=1, dash="dot"),
+            showlegend=False,
+        ))
+
+    fig.update_layout(
+        title=f"Deflection ({component})",
+        scene=dict(
+            xaxis_title="x (m)",
+            yaxis_title="z (m)",
+            zaxis_title=f"displacement ({component})",
+        ),
+        legend_title="Member",
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Matplotlib plotting functions
+# ---------------------------------------------------------------------------
 def plot_force(
     ospgrillage_obj,
     result_obj=None,
@@ -189,93 +474,17 @@ def plot_force(
     :returns: Matplotlib figure
     :rtype: :class:`~matplotlib.figure.Figure`
     """
-    # instantiate component dict
-    comp_dict = {"Fx": 0, "Fy": 1, "Fz": 2, "Mx": 3, "My": 4, "Mz": 5}
-    comp_factor = {"Fx": 1, "Fy": 1, "Fz": 1, "Mx": 1, "My": 1, "Mz": -1}
     if member is None:
         raise ValueError("Missing argument: member= is required")
-    component_index = component
-    if not isinstance(component, int):
-        component_index = comp_dict[component]
-    factor = comp_factor[component]
-    fig, ax = plt.subplots()  # create plot window
-    nodes = ospgrillage_obj.get_nodes()  # extract node information of model
-    eletag = ospgrillage_obj.get_element(
-        member=member, options=option
-    )  # get ele tag of grillage elements
-    # loop ele tags of ele
-    if ospgrillage_obj.model_type == "shell_beam":
-        force_result = result_obj.forces_beam
-    else:
-        force_result = result_obj.forces
 
-    for ele in eletag:
-        # get force components
-        if loadcase:
-            ele_components = force_result.sel(
-                Loadcase=loadcase,
-                Element=ele,
-                Component=[
-                    "Vx_i",
-                    "Vy_i",
-                    "Vz_i",
-                    "Mx_i",
-                    "My_i",
-                    "Mz_i",
-                    "Vx_j",
-                    "Vy_j",
-                    "Vz_j",
-                    "Mx_j",
-                    "My_j",
-                    "Mz_j",
-                ],
-            ).values
-        else:
-            ele_components = force_result.sel(
-                Element=ele,
-                Component=[
-                    "Vx_i",
-                    "Vy_i",
-                    "Vz_i",
-                    "Mx_i",
-                    "My_i",
-                    "Mz_i",
-                    "Vx_j",
-                    "Vy_j",
-                    "Vz_j",
-                    "Mx_j",
-                    "My_j",
-                    "Mz_j",
-                ],
-            )[0].values
-        # get nodes of ele
-        if ospgrillage_obj.model_type == "shell_beam":
-            ele_node = result_obj.ele_nodes_shell.sel(Element=ele)
-            if all(np.isnan(result_obj.ele_nodes_shell.sel(Element=ele))):
-                ele_node = result_obj.ele_nodes_beam.sel(Element=ele)
-            # remove nans elements in the 4 node list (shell) for beam (2 elements)
-            ele_node = ele_node[~np.isnan(ele_node)]
-        else:
-            ele_node = result_obj.ele_nodes.sel(Element=ele)
+    all_xx, _all_zz, all_values = _extract_force_data(
+        ospgrillage_obj, result_obj, component, member, loadcase, option,
+    )
 
-        # create arrays for x y and z for plots
-        xx = [nodes[n]["coordinate"][0] for n in ele_node.values]
-        yy = [nodes[n]["coordinate"][1] for n in ele_node.values]
-        zz = [nodes[n]["coordinate"][2] for n in ele_node.values]
-        # use ops_vis module to get force distribution on element
-        # opsvis >= 1.0 replaced separate ex/ey/ez args with a single ecrd
-        # ndarray of shape (2, 3): rows are nodes, columns are x, y, z
-        s, *_ = opsv.section_force_distribution_3d(
-            ecrd=np.column_stack([xx, yy, zz]),
-            pl=ele_components,  # TODO check inputs with opsv package
-        )
-
-        # plot element force component
-        ax.plot(xx, s[:, component_index] * factor, "-k")
-        # fill area between horizontal axis and line
-        ax.fill_between(
-            xx, s[:, component_index] * factor, [0, 0], color="k", alpha=0.4
-        )
+    fig, ax = plt.subplots()
+    for xx, vals in zip(all_xx, all_values):
+        ax.plot(xx, vals, "-k")
+        ax.fill_between(xx, vals, np.zeros_like(vals), color="k", alpha=0.4)
     ax.set_title(member)
     ax.set_xlabel("x (m) ")
     ax.set_ylabel(component)
@@ -317,55 +526,20 @@ def plot_defo(
     :returns: Matplotlib figure
     :rtype: :class:`~matplotlib.figure.Figure`
     """
-    # init vars
-    previous_def = None
-    previous_xx = None
-    previous_zz = None
-
-    # check options
-    if option is None:
-        plot_option = "nodes"
-    else:
-        plot_option = option
-    # check member, if None, return None, Users need to define the member str to plot
     if member is None:
         raise ValueError("Missing argument: member= is required")
-    # check if component is provided, else default to
-    dis_comp = component
-    if component is None:
-        dis_comp = "y"  # default to dy
+
+    dis_comp = component if component is not None else "y"
+    xx_list, _zz_list, values_list = _extract_defo_data(
+        ospgrillage_obj, result_obj, member, dis_comp, loadcase, option,
+    )
 
     fig, ax = plt.subplots()
-    # get all node information
-    nodes = ospgrillage_obj.get_nodes()  # dictionary containing information of nodes
-    # get specific nodes for specific element
-    nodes_to_plot = ospgrillage_obj.get_element(member=member, options=plot_option)[
-        0
-    ]  # list of list
-    # loop through nodes to plot
-    for node in nodes_to_plot:
-        if loadcase:
-            disp = result_obj.displacements.sel(
-                Component=dis_comp, Node=node, Loadcase=loadcase
-            ).values  # get node disp value
-        else:
-            disp = result_obj.displacements.sel(Component=dis_comp, Node=node)[
-                0
-            ].values  # get node disp value
-        xx = nodes[node]["coordinate"][0]  # get x coord
-        zz = nodes[node]["coordinate"][2]  # get z coord (for 3D plots)
-        if previous_def is not None:
-            ax.plot(
-                [previous_xx, xx], [previous_def, disp], "-b"
-            )  # plot a 1-D plot of all nodes in grillage element
-        previous_def = disp
-        previous_xx = xx
-        previous_zz = zz
+    ax.plot(xx_list, values_list, "-b")
     ax.set_title(member)
-    ax.set_xlabel("x (m) ")  # labels
-    ax.set_ylabel(dis_comp)  # labels
+    ax.set_xlabel("x (m) ")
+    ax.set_ylabel(dis_comp)
     fig.tight_layout()
-    # fig.show()
 
     return fig
 
@@ -380,7 +554,8 @@ _MAIN_BEAM_MEMBERS = [
 ]
 
 
-def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
+def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
+             backend="matplotlib"):
     """
     Plot bending moment diagram (Mz) for one or all main beams.
 
@@ -391,8 +566,17 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
     :param result_obj: xarray DataSet of results.
     :param member: Member name. If ``None``, plots all main beams.
     :param loadcase: Load case name. If ``None``, uses the first load case.
+    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
     :returns: Single figure when *member* is given, else list of figures.
+        For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
+    members = [member] if member else _MAIN_BEAM_MEMBERS
+    if backend == "plotly":
+        return _plotly_3d_force(
+            ospgrillage_obj, result_obj, component="Mz",
+            members=members, loadcase=loadcase, comp_label="Mz",
+        )
+    # matplotlib path
     if member is not None:
         return plot_force(
             ospgrillage_obj, result_obj, component="Mz",
@@ -412,7 +596,8 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
     return figs
 
 
-def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
+def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
+             backend="matplotlib"):
     """
     Plot shear force diagram (Fy) for one or all main beams.
 
@@ -423,8 +608,17 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
     :param result_obj: xarray DataSet of results.
     :param member: Member name. If ``None``, plots all main beams.
     :param loadcase: Load case name. If ``None``, uses the first load case.
+    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
     :returns: Single figure when *member* is given, else list of figures.
+        For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
+    members = [member] if member else _MAIN_BEAM_MEMBERS
+    if backend == "plotly":
+        return _plotly_3d_force(
+            ospgrillage_obj, result_obj, component="Fy",
+            members=members, loadcase=loadcase, comp_label="Fy",
+        )
+    # matplotlib path
     if member is not None:
         return plot_force(
             ospgrillage_obj, result_obj, component="Fy",
@@ -444,7 +638,8 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
     return figs
 
 
-def plot_deflection(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
+def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
+                    backend="matplotlib"):
     """
     Plot vertical deflection (y-displacement) for one or all main beams.
 
@@ -455,8 +650,17 @@ def plot_deflection(ospgrillage_obj, result_obj=None, member=None, loadcase=None
     :param result_obj: xarray DataSet of results.
     :param member: Member name. If ``None``, plots all main beams.
     :param loadcase: Load case name. If ``None``, uses the first load case.
+    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
     :returns: Single figure when *member* is given, else list of figures.
+        For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
+    members = [member] if member else _MAIN_BEAM_MEMBERS
+    if backend == "plotly":
+        return _plotly_3d_defo(
+            ospgrillage_obj, result_obj, members=members,
+            component="y", loadcase=loadcase,
+        )
+    # matplotlib path
     if member is not None:
         return plot_defo(
             ospgrillage_obj, result_obj, member=member,

@@ -62,5 +62,5 @@ __all__ = [
     "plot_defo",
     "plot_bmd",
     "plot_sfd",
-    "plot_deflection",
+    "plot_def",
 ]
