@@ -36,7 +36,8 @@ __all__ = [
     "Path",
     "PointLoad",
     "LineLoading",
-    "LoadPoint",
+    "LoadVertex",
+    "LoadPoint",  # deprecated alias for LoadVertex
     "CompoundLoad",
     "Line",
     "ShapeFunction",
@@ -53,9 +54,10 @@ __all__ = [
 
 def create_load_vertex(**kwargs):
     """
-    User interface function to create a load vertex. Load vertices are used in defining loads. For example,
-    a point load consist of a single load vertex while a patch load is defined using four load vertices for each of
-    its corner.
+    Create a :class:`LoadVertex` — a spatial coordinate with load magnitude.
+
+    Load vertices are the building blocks of every load type.  A point load
+    needs one vertex, a line load two, and a patch load four (or more).
 
     :param x: x coordinate of the load vertex.
     :type x: float or int
@@ -65,9 +67,8 @@ def create_load_vertex(**kwargs):
     :type z: float or int
     :param p: Magnitude of vertical load in the y direction.
     :type p: float or int
-    :returns: ``LoadPoint(x, y, z, p)`` namedTuple.
+    :returns: :class:`LoadVertex` ``(x, y, z, p)`` namedtuple.
     :raises ValueError: If one or more of ``x``, ``z``, or ``p`` are missing.
-
     """
     x = kwargs.get("x", None)
     y = kwargs.get("y", 0)
@@ -75,7 +76,7 @@ def create_load_vertex(**kwargs):
     p = kwargs.get("p", None)
 
     if not any([x is None, y is None, z is None, p is None]):
-        return LoadPoint(x, y, z, p)
+        return LoadVertex(x, y, z, p)
     else:
         raise ValueError("Missing one or more keyword arguments for x=, y=, z=, or p=")
 
@@ -137,14 +138,14 @@ def create_load(**kwargs):
 
     :param loadtype: Type of load to create. One of ``"point"``, ``"line"``, ``"patch"``, or ``"nodal"``.
     :type loadtype: str
-    :param point1: First load point in global coordinates (required for all load types).
-    :type point1: LoadPoint namedTuple
-    :param point2: Second load point in global coordinates (required for line and patch loads).
-    :type point2: LoadPoint namedTuple, optional
-    :param point3: Third load point (patch loads only).
-    :type point3: LoadPoint namedTuple, optional
-    :param point4: Fourth load point (patch loads only).
-    :type point4: LoadPoint namedTuple, optional
+    :param point1: First load vertex in global coordinates (required for all load types).
+    :type point1: LoadVertex
+    :param point2: Second load vertex in global coordinates (required for line and patch loads).
+    :type point2: LoadVertex, optional
+    :param point3: Third load vertex (patch loads only).
+    :type point3: LoadVertex, optional
+    :param point4: Fourth load vertex (patch loads only).
+    :type point4: LoadVertex, optional
     :returns: :class:`~ospgrillage.load.PointLoad`, :class:`~ospgrillage.load.LineLoading`,
         :class:`~ospgrillage.load.PatchLoading`, or :class:`~ospgrillage.load.NodalForces`
         depending on ``loadtype``.
@@ -223,8 +224,20 @@ def create_moving_path(**kwargs):
     return Path(**kwargs)
 
 
-# named tuple definition
-LoadPoint = namedtuple("Point", ["x", "y", "z", "p"])
+# named tuple definitions
+LoadVertex = namedtuple("LoadVertex", ["x", "y", "z", "p"])
+"""A spatial coordinate with load magnitude — the building block of all loads.
+
+``LoadVertex(x, y, z, p)`` where *x*, *y*, *z* are global coordinates and
+*p* is the load magnitude (force, force/length, or force/area depending on
+the load type).
+
+.. versionadded:: 0.5.0
+"""
+
+#: Deprecated alias for :class:`LoadVertex`.  Prefer ``LoadVertex`` in new code.
+LoadPoint = LoadVertex
+
 NodeForces = namedtuple("node_forces", ["Fx", "Fy", "Fz", "Mx", "My", "Mz"])
 Line = namedtuple("line", ["m", "c", "phi"])
 
@@ -245,8 +258,8 @@ class Loads:
     ----------
     name : str
         Name identifier for the load
-    load_point_1 to load_point_8 : LoadPoint
-        LoadPoint namedtuples defining spatial coordinates and force magnitudes
+    load_point_1 to load_point_8 : LoadVertex
+        LoadVertex namedtuples defining spatial coordinates and force magnitudes
     shape_function : str, default 'linear'
         Shape function type used for load interpolation
     point_list : list
@@ -265,14 +278,14 @@ class Loads:
         Counter for tracking compound load instances
     """
 
-    load_point_1: LoadPoint
-    load_point_2: LoadPoint
-    load_point_3: LoadPoint
-    load_point_4: LoadPoint
-    load_point_5: LoadPoint
-    load_point_6: LoadPoint
-    load_point_7: LoadPoint
-    load_point_8: LoadPoint
+    load_point_1: LoadVertex
+    load_point_2: LoadVertex
+    load_point_3: LoadVertex
+    load_point_4: LoadVertex
+    load_point_5: LoadVertex
+    load_point_6: LoadVertex
+    load_point_7: LoadVertex
+    load_point_8: LoadVertex
 
     def __init__(self, **kwargs):
         """
@@ -284,18 +297,18 @@ class Loads:
         :param Mx: Moment about x axis
         :param My: Moment about y axis
         :param Mz: Moment about z axis
-        :param point1: First load point in global coordinates.
-        :type point1: LoadPoint namedTuple, optional
-        :param point2: Second load point in global coordinates.
-        :type point2: LoadPoint namedTuple, optional
-        :param point3: Third load point in global coordinates.
-        :type point3: LoadPoint namedTuple, optional
-        :param point4: Fourth load point in global coordinates (required for patch loads).
-        :type point4: LoadPoint namedTuple, optional
-        :param localpoint1: First load point in local coordinates.
-        :type localpoint1: LoadPoint namedTuple, optional
-        :param localpoint2: Second load point in local coordinates.
-        :type localpoint2: LoadPoint namedTuple, optional
+        :param point1: First load vertex in global coordinates.
+        :type point1: LoadVertex, optional
+        :param point2: Second load vertex in global coordinates.
+        :type point2: LoadVertex, optional
+        :param point3: Third load vertex in global coordinates.
+        :type point3: LoadVertex, optional
+        :param point4: Fourth load vertex in global coordinates (required for patch loads).
+        :type point4: LoadVertex, optional
+        :param localpoint1: First load vertex in local coordinates.
+        :type localpoint1: LoadVertex, optional
+        :param localpoint2: Second load vertex in local coordinates.
+        :type localpoint2: LoadVertex, optional
 
 
         """
@@ -578,7 +591,7 @@ class PointLoad(Loads):
         :param name: Name identifier for the point load.
         :type name: str, optional
         :param point1: Location and magnitude of the concentrated load.
-        :type point1: LoadPoint
+        :type point1: LoadVertex
         :param Fx: Force in the global x direction.
         :type Fx: float, optional
         :param Fy: Force in the global y direction.
@@ -612,12 +625,12 @@ class LineLoading(Loads):
         :param name: Name identifier for the line load.
         :type name: str, optional
         :param point1: Start point of the line load.
-        :type point1: LoadPoint
+        :type point1: LoadVertex
         :param point2: End point of the line load.
-        :type point2: LoadPoint
+        :type point2: LoadVertex
         :param point3: If provided, defines a curved (circular arc) line load through
             point1, point2, and point3. If ``None``, the load follows a straight line.
-        :type point3: LoadPoint, optional
+        :type point3: LoadVertex, optional
         :param long_beam_element_load: Apply load to longitudinal beam elements. Defaults to ``False``.
         :type long_beam_element_load: bool
         :param trans_beam_element_load: Apply load to transverse beam elements. Defaults to ``False``.
@@ -839,21 +852,21 @@ class PatchLoading(Loads):
         may be provided for higher-order patches.
 
         :param point1: First vertex of the patch boundary (CCW order). Required.
-        :type point1: LoadPoint
+        :type point1: LoadVertex
         :param point2: Second vertex of the patch boundary (CCW order). Required.
-        :type point2: LoadPoint
+        :type point2: LoadVertex
         :param point3: Third vertex of the patch boundary (CCW order). Required.
-        :type point3: LoadPoint
+        :type point3: LoadVertex
         :param point4: Fourth vertex of the patch boundary (CCW order). Required.
-        :type point4: LoadPoint
+        :type point4: LoadVertex
         :param point5: Fifth vertex for 8-point (higher-order) patches.
-        :type point5: LoadPoint, optional
+        :type point5: LoadVertex, optional
         :param point6: Sixth vertex for 8-point patches.
-        :type point6: LoadPoint, optional
+        :type point6: LoadVertex, optional
         :param point7: Seventh vertex for 8-point patches.
-        :type point7: LoadPoint, optional
+        :type point7: LoadVertex, optional
         :param point8: Eighth vertex for 8-point patches.
-        :type point8: LoadPoint, optional
+        :type point8: LoadVertex, optional
         :param name: Name identifier for this load.
         :type name: str, optional
         :raises ValueError: If fewer than 4 vertices are supplied, or if the

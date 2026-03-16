@@ -21,7 +21,7 @@ from ospgrillage.load import (
     CompoundLoad,
     LineLoading,
     LoadCase,
-    LoadPoint,
+    LoadVertex,
     MovingLoad,
     NodalLoad,
     PatchLoading,
@@ -1180,7 +1180,7 @@ class OspGrillage:
             z = point[2]
             # set point to tuple
             loading_point = Point(x, y, z)
-        elif isinstance(point, LoadPoint):
+        elif isinstance(point, LoadVertex):
             loading_point = point
         for grid_tag, grid_nodes in self.Mesh_obj.grid_number_dict.items():
             # get grid nodes coordinate as named tuple Point
@@ -1745,7 +1745,7 @@ class OspGrillage:
                 p = patch_load_obj.patch_mag_interpolate(
                     coord[0], coord[2]
                 )  # object function returns array like
-                p_list.append(LoadPoint(coord[0], coord[1], coord[2], p))
+                p_list.append(LoadVertex(coord[0], coord[1], coord[2], p))
             # get centroid of patch on grid
             xc, yc, zc = get_patch_centroid(p_list)
             inside_point = Point(xc, yc, zc)
@@ -1816,7 +1816,7 @@ class OspGrillage:
                     )  # object function returns array like
                     # p is array object, extract
                     p_list.append(
-                        LoadPoint(int_point[0], int_point[1], int_point[2], p)
+                        LoadVertex(int_point[0], int_point[1], int_point[2], p)
                         if int_point != []
                         else []
                     )
@@ -1826,7 +1826,7 @@ class OspGrillage:
                 p = patch_load_obj.patch_mag_interpolate(
                     coord[0], coord[2]
                 )  # object function returns array like
-                p_list.append(LoadPoint(coord[0], coord[1], coord[2], p))
+                p_list.append(LoadVertex(coord[0], coord[1], coord[2], p))
             # Loop each p_list object to find duplicates if any, remove duplicate
             for count, point in enumerate(p_list):
                 dupe = [point == val for val in p_list]

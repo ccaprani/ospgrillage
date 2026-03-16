@@ -16,27 +16,39 @@ Figure 1 shows the flowchart for the load module of *ospgrillage*.
 
 ## Defining loads
 
-Loads are created with the interface function {func}`~ospgrillage.load.create_load`. Users pass the `loadtype` keyword argument to specify the load type. Available load types include {ref}`point`, {ref}`line`, and {ref}`patch` loads.
+Every load in *ospgrillage* is built from two things:
 
-Each load type requires the user to specify its load point(s). This is achieved by the {func}`~ospgrillage.load.create_load_vertex` function. This function creates a {class}`~ospgrillage.load.LoadPoint` `namedtuple` `(x, y, z, p)` where `x`, `y`, `z` are the coordinates of the load point and `p` is the magnitude of the vertical loading. The interpretation of `p` depends on the load type (explained below). By default, `y` is `0` — i.e. the grillage model plane.
+1. **A load vertex** — `LoadVertex(x, y, z, p)` is a `namedtuple` that says *where* a load acts and *how much*. `x`, `y`, `z` are global coordinates and `p` is the load magnitude. The meaning of `p` depends on the load type (force, force/length, or force/area — see below). For grillage models, `y = 0` (the deck plane) almost always.
+
+2. **A load object** — a named object ({class}`~ospgrillage.load.PointLoad`, {class}`~ospgrillage.load.LineLoading`, {class}`~ospgrillage.load.PatchLoading`, or {class}`~ospgrillage.load.NodalLoad`) that combines one or more `LoadVertex` values with a name and load type.
 
 ```python
-point_load_location = og.create_load_vertex(x=5, z=2, p=20)  # create load point
+# A LoadVertex defines where and how much
+vertex = og.LoadVertex(x=5, y=0, z=2, p=20)
+
+# A load object wraps that into a named load
+point_load = og.PointLoad(name="single point", point1=vertex)
 ```
 
-Depending on the load type, a minimum number of {class}`~ospgrillage.load.LoadPoint` tuples are required. These are passed to the `point1`, `point2`, … keyword arguments of {func}`~ospgrillage.load.create_load`. The following sections explain the required vertices for each load type.
+Loads are generally defined in the global coordinate system. A user-defined local coordinate system is required when defining {ref}`compound-load` later on.
 
-Loads are generally defined in the global coordinate system with respect to the created grillage model. However, a user-defined local coordinate system is required when defining {ref}`compound-load` later on.
+```{tip}
+The convenience function {func}`~ospgrillage.load.create_load_vertex` creates a `LoadVertex` with `y=0` by default and validates inputs — handy for quick interactive use:
+
+    vertex = og.create_load_vertex(x=5, z=2, p=20)  # y defaults to 0
+
+Similarly, {func}`~ospgrillage.load.create_load` is a factory that creates the appropriate load class from a `loadtype` string. Both shortcuts produce the same objects shown below.
+```
 
 ### Nodal loads
 
-Nodal loads are loads applied directly onto nodes of the grillage model. Nodal loads are defined using {func}`~ospgrillage.load.create_load`, specifying `loadtype="nodal"`. There are six degrees-of-freedom (DOFs) for acting loads at each node.
+Nodal loads are applied directly onto nodes of the grillage model. There are six degrees-of-freedom (DOFs) at each node.
 
-Nodal loads do not require a load vertex. Instead, they require a `NodeForces(Fx, Fy, Fz, Mx, My, Mz)` `namedtuple`. The following example creates a `NodeForces` tuple and a nodal load on Node 13 of a model, with 10 unit force in both the X and Y directions.
+Nodal loads use `NodeForces(Fx, Fy, Fz, Mx, My, Mz)` instead of `LoadVertex`. The following example creates a nodal load on Node 13 with 10 force units in both the X and Y directions.
 
 ```python
 nodalforce = og.NodeForces(Fx=10, Fy=10)
-node13force = og.create_load(loadtype="nodal", name="nodal 13", node_force=nodalforce)  # other DOFs default to 0
+node13force = og.NodalLoad(name="nodal 13", node_force=nodalforce)  # other DOFs default to 0
 ```
 
 ```{note}
@@ -44,36 +56,30 @@ You only need to specify non-zero values for the desired DOFs. Any unspecified c
 ```
 
 (point)=
-### Point Loads
+### Point loads
 
-A point load is a force applied at a single infinitesimal point of the grillage model. Point loads can represent a wide range of loads such as truck axles or superimposed dead loads on a deck.
-
-Point loads are created using {func}`~ospgrillage.load.create_load`, passing `loadtype="point"`. A point load takes only a single {class}`~ospgrillage.load.LoadPoint` tuple. `p` should have units of force (e.g. N, kN, kips) — see Figure 2.
+A point load is a concentrated force at a single location on the grillage model — e.g. a truck axle or a superimposed dead load. It requires one `LoadVertex`; `p` should have units of force (N, kN, kips) — see Figure 2.
 
 ![Figure 2: Point load](../images/point.png)
 
-The following example code creates a 20 force unit point load located at (5,0,2) in the global coordinate system.
-
 ```python
-point_load_location = og.create_load_vertex(x=5, z=2, p=20)  # create load point
-point_load = og.create_load(loadtype="point",name="single point", point1=point_load_location)
+# 20 kN point load at (5, 0, 2)
+point_load = og.PointLoad(name="single point", point1=og.LoadVertex(5, 0, 2, 20))
 ```
 
 (line)=
-### Line Loads
+### Line loads
 
-Line loads are loads exerted along a line. They are useful to represent loads such as self-weight of longitudinal beams or distributed loads along beam elements.
-
-Line loads are created with {func}`~ospgrillage.load.create_load` passing `loadtype="line"` and require at least two {class}`~ospgrillage.load.LoadPoint` values (corresponding to the start and end of the line) — see Figure 3. Using more than two points allows a varying line-load profile. `p` should have units of force per distance (e.g. kN/m, kips/ft).
+Line loads are distributed along a line — e.g. self-weight of a beam or a barrier. They require at least two `LoadVertex` values (start and end); `p` should have units of force per distance (kN/m, kips/ft) — see Figure 3.
 
 ![Figure 3: Line load](../images/line.png)
 
-The following example code is a constant Two force per distance unit line load (UDL) in the global coordinate system from -1 to 11 distance units in the `x`-axis and along the position in the `z`-axis at 3 distance units.
+The following example creates a constant 2 kN/m UDL from x = −1 to x = 11 at z = 3.
 
 ```python
-barrier_point_1 = og.create_load_vertex(x=-1, z=3, p=2)
-barrier_point_2 = og.create_load_vertex(x=11, z=3, p=2)
-Barrier = og.create_load(loadtype="line", name="Barrier curb", point1=barrier_point_1, point2=barrier_point_2)
+Barrier = og.LineLoading(name="Barrier curb",
+                         point1=og.LoadVertex(-1, 0, 3, 2),
+                         point2=og.LoadVertex(11, 0, 3, 2))
 ```
 
 ```{note}
@@ -83,20 +89,16 @@ As of release 0.1.0, curved line loads are not available.
 (patch)=
 ### Patch loads
 
-Patch loads represent loads distributed uniformly over an area, such as traffic lanes.
-
-Patch loads are created with {func}`~ospgrillage.load.create_load`, specifying `loadtype="patch"`. A patch load requires at least four {class}`~ospgrillage.load.LoadPoint` tuples (corresponding to the vertices of the loaded area) — see Figure 4. Using eight tuples allows a curved surface loading profile. `p` should have units of force per area (e.g. kN/m², kips/ft²).
+Patch loads are distributed over an area — e.g. traffic lanes. They require at least four `LoadVertex` values (the vertices, in order); `p` should have units of force per area (kN/m², kips/ft²) — see Figure 4. Eight vertices allow a curved surface profile.
 
 ![Figure 4: Patch load](../images/patch.png)
 
-The following example code creates a constant 5 force per area unit patch load in the global coordinate system.
-
 ```python
-lane_point_1 = og.create_load_vertex(x=0, z=3, p=5)
-lane_point_2 = og.create_load_vertex(x=8, z=3, p=5)
-lane_point_3 = og.create_load_vertex(x=8, z=5, p=5)
-lane_point_4 = og.create_load_vertex(x=0, z=5, p=5)
-Lane = og.create_load(loadtype="patch",name="Lane 1", point1=lane_point_1, point2=lane_point_2, point3=lane_point_3, point4=lane_point_4)
+Lane = og.PatchLoading(name="Lane 1",
+                        point1=og.LoadVertex(0, 0, 3, 5),
+                        point2=og.LoadVertex(8, 0, 3, 5),
+                        point3=og.LoadVertex(8, 0, 5, 5),
+                        point4=og.LoadVertex(0, 0, 5, 5))
 ```
 
 ```{note}

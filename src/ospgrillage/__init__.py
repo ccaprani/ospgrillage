@@ -39,7 +39,8 @@ __all__ = [
     "Path",
     "PointLoad",
     "LineLoading",
-    "LoadPoint",
+    "LoadVertex",
+    "LoadPoint",  # deprecated alias for LoadVertex
     "CompoundLoad",
     "Line",
     "ShapeFunction",
