@@ -471,22 +471,6 @@
     "og.opsv.plot_model(element_labels=0, az_el=(-90, 0))  # plotting using ops_vis\n",
     "og.plt.show()"
    ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "ef987ce0-0e0b-4539-878d-010f48d6a4bd",
-   "metadata": {},
-   "outputs": [],
-   "source": []
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "daa46660-1358-4d2c-ae7a-8a1e2fc6c9d5",
-   "metadata": {},
-   "outputs": [],
-   "source": []
   }
  ],
  "metadata": {
@@ -505,7 +489,7 @@
    "name": "python",
    "nbconvert_exporter": "python",
    "pygments_lexer": "ipython3",
-   "version": "3.8.10"
+   "version": "3.10.12"
   }
  },
  "nbformat": 4,

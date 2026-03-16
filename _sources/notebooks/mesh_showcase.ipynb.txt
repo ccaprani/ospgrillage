@@ -238,7 +238,7 @@
     "oblique_grillage.create_osp_model(\n",
     "    pyfile=False\n",
     ")  \n",
-    "og.opsplt.plot_model(\"nodes\")"
+    "og.opsplt.plot_model(show_nodes=\"yes\",show_nodetags=\"yes\",)"
    ]
   },
   {
@@ -330,7 +330,7 @@
     "ortho_grillage.create_osp_model(\n",
     "    pyfile=False\n",
     ")  \n",
-    "og.opsplt.plot_model(\"nodes\")"
+    "og.opsplt.plot_model(show_nodes=\"yes\",show_nodetags=\"yes\",)"
    ]
   },
   {
@@ -422,24 +422,8 @@
     "varied_edge_angle_grillage.create_osp_model(\n",
     "    pyfile=False\n",
     ")  \n",
-    "og.opsplt.plot_model(\"nodes\")"
+    "og.opsplt.plot_model(show_nodes=\"yes\",show_nodetags=\"yes\",)"
    ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "a098dbd3-101d-4a71-b36b-2100a3a9cd54",
-   "metadata": {},
-   "outputs": [],
-   "source": []
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "5c2bc962-a225-4d75-b17d-6111674fe8c2",
-   "metadata": {},
-   "outputs": [],
-   "source": []
   }
  ],
  "metadata": {
@@ -458,7 +442,7 @@
    "name": "python",
    "nbconvert_exporter": "python",
    "pygments_lexer": "ipython3",
-   "version": "3.8.10"
+   "version": "3.10.12"
   }
  },
  "nbformat": 4,

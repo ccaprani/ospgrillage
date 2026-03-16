@@ -1,0 +1,6 @@
+﻿create\_material
+================
+
+.. currentmodule:: ospgrillage.material
+
+.. autofunction:: create_material

@@ -1,0 +1,6 @@
+﻿MovingLoad.set\_path
+====================
+
+.. currentmodule:: ospgrillage.load
+
+.. automethod:: MovingLoad.set_path
