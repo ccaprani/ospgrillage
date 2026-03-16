@@ -274,6 +274,45 @@ og.plot_def(bridge_28, results)   # vertical deflection (y)
 Each returns a list of figures (one per main beam member group).  Pass
 `member="interior_main_beam"` to plot a single member instead.
 
+### Customising plots
+
+All plotting functions accept keyword arguments for common customisations:
+
+```python
+# Wide figure, values in kN·m, custom title, red with no fill
+og.plot_bmd(bridge_28, results,
+            member="interior_main_beam",
+            figsize=(12, 4),
+            scale=0.001,
+            title="Bending Moment (kN·m)",
+            color="r",
+            fill=False)
+```
+
+To compose multi-panel figures, pass an existing matplotlib `Axes`:
+
+```python
+import matplotlib.pyplot as plt
+fig, axes = plt.subplots(1, 3, figsize=(18, 4))
+og.plot_bmd(bridge_28, results, member="interior_main_beam", ax=axes[0])
+og.plot_sfd(bridge_28, results, member="interior_main_beam", ax=axes[1])
+og.plot_def(bridge_28, results, member="interior_main_beam", ax=axes[2], color="g")
+fig.tight_layout()
+```
+
+The full set of keyword arguments is:
+
+| Kwarg | Default | Description |
+|---|---|---|
+| `figsize` | matplotlib default | Figure size in inches `(width, height)` |
+| `ax` | `None` | Existing Axes (matplotlib) or Figure (Plotly) to draw on |
+| `scale` | `1.0` | Multiply values by this factor (e.g. `0.001` for N → kN) |
+| `title` | auto | Custom title string, or `None` to suppress |
+| `color` | `"k"` / `"b"` | Line colour |
+| `fill` | `True` | Shade the area under force diagrams |
+| `alpha` | `0.4` | Fill / trace transparency |
+| `show` | `False` | Call `fig.show()` before returning |
+
 ### Interactive 3D plots (Plotly)
 
 For interactive rotation — especially useful in Jupyter notebooks — pass

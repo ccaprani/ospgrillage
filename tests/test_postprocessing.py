@@ -419,3 +419,123 @@ def test_plotly_import_error():
     with patch.dict("sys.modules", {"plotly": None, "plotly.graph_objects": None}):
         with pytest.raises(ImportError, match="ospgrillage\\[gui\\]"):
             _import_plotly()
+
+
+# ---------------------------------------------------------------------------
+# Plotting kwargs tests
+# ---------------------------------------------------------------------------
+def _make_analyzed_bridge(bridge_model_42_negative):
+    """Helper: set up a load case, analyse, and return (bridge, results)."""
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(load_obj=front_wheel)
+    bridge.add_load_case(lc)
+    bridge.analyze()
+    results = bridge.get_results(local_forces=False)
+    return bridge, results
+
+
+def test_plot_force_figsize(bridge_model_42_negative):
+    """figsize is forwarded to plt.subplots."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    fig = og.plot_force(
+        bridge, results, component="Mz", member="interior_main_beam",
+        figsize=(10, 4),
+    )
+    w, h = fig.get_size_inches()
+    assert abs(w - 10) < 0.1
+    assert abs(h - 4) < 0.1
+
+
+def test_plot_force_ax(bridge_model_42_negative):
+    """Passing an existing Axes should reuse the figure."""
+    import matplotlib.pyplot as plt
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+
+    fig_ext, ax_ext = plt.subplots(figsize=(12, 3))
+    returned_fig = og.plot_force(
+        bridge, results, component="Mz", member="interior_main_beam",
+        ax=ax_ext,
+    )
+    assert returned_fig is fig_ext
+
+
+def test_plot_force_scale(bridge_model_42_negative):
+    """scale=2.0 should double the plotted y-values."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+
+    fig1 = og.plot_force(
+        bridge, results, component="Mz", member="interior_main_beam",
+        scale=1.0,
+    )
+    fig2 = og.plot_force(
+        bridge, results, component="Mz", member="interior_main_beam",
+        scale=2.0,
+    )
+    # Compare the first line's y-data
+    import numpy as np
+    y1 = fig1.axes[0].lines[0].get_ydata()
+    y2 = fig2.axes[0].lines[0].get_ydata()
+    np.testing.assert_allclose(y2, y1 * 2, rtol=1e-10)
+
+
+def test_plot_force_styling(bridge_model_42_negative):
+    """Smoke test: color, fill, alpha, title, show kwargs don't error."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    fig = og.plot_force(
+        bridge, results, component="Mz", member="interior_main_beam",
+        color="r", fill=False, alpha=0.8, title="Custom Title", show=False,
+    )
+    assert fig.axes[0].get_title() == "Custom Title"
+    # fill=False means no PolyCollection (only lines)
+    assert len(fig.axes[0].collections) == 0
+
+
+def test_plot_force_title_none(bridge_model_42_negative):
+    """title=None should suppress the title."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    fig = og.plot_force(
+        bridge, results, component="Mz", member="interior_main_beam",
+        title=None,
+    )
+    assert fig.axes[0].get_title() == ""
+
+
+def test_plot_bmd_kwargs_passthrough(bridge_model_42_negative):
+    """plot_bmd forwards kwargs to plot_force without error."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    fig = og.plot_bmd(
+        bridge, results, member="interior_main_beam",
+        figsize=(12, 4), scale=0.001, title="BMD (kNm)",
+    )
+    assert fig is not None
+    assert fig.axes[0].get_title() == "BMD (kNm)"
+
+
+def test_plot_def_kwargs_passthrough(bridge_model_42_negative):
+    """plot_def forwards kwargs to plot_defo without error."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    fig = og.plot_def(
+        bridge, results, member="interior_main_beam",
+        figsize=(12, 4), scale=1000, color="g",
+    )
+    assert fig is not None
+
+
+def test_plotly_kwargs(bridge_model_42_negative):
+    """Plotly backend accepts figsize, scale, title kwargs."""
+    go = pytest.importorskip("plotly.graph_objects")
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+
+    fig = og.plot_bmd(
+        bridge, results, backend="plotly",
+        figsize=(12, 8), scale=0.5, title="Custom Plotly BMD",
+    )
+    assert isinstance(fig, go.Figure)
+    assert fig.layout.title.text == "Custom Plotly BMD"
+    assert fig.layout.width == 1200
+    assert fig.layout.height == 800

@@ -30,6 +30,12 @@ __all__ = [
 ]
 
 
+# Sentinel for auto-generated titles.  ``title=_AUTO`` means "use the
+# default"; ``title=None`` means "no title"; ``title="..."`` is a custom
+# override.
+_AUTO = object()
+
+
 # ---------------------------------------------------------------------------
 # Lazy import for optional plotly dependency
 # ---------------------------------------------------------------------------
@@ -309,7 +315,9 @@ def _extract_defo_data(ospgrillage_obj, result_obj, member, component="y",
 # Plotly 3D figure builders
 # ---------------------------------------------------------------------------
 def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
-                     loadcase=None, comp_label=None):
+                     loadcase=None, comp_label=None, *,
+                     fig=None, figsize=None, scale=1.0, title=_AUTO,
+                     alpha=1.0):
     """Build an interactive 3D Plotly figure of force diagrams.
 
     Each member is drawn as a ``Scatter3d`` trace with:
@@ -327,11 +335,18 @@ def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
     :param members: List of member group name strings to include.
     :param loadcase: Load case name.  ``None`` uses the first load case.
     :param comp_label: Axis / title label.  Defaults to *component*.
+    :param fig: Existing Plotly ``Figure`` to add traces to.
+    :param figsize: Figure size in inches ``(width, height)``.
+    :param scale: Multiply plotted values by this factor.
+    :param title: Plot title.  Default auto-generates from component.
+        ``None`` suppresses the title.
+    :param alpha: Trace opacity (0–1).
     :returns: Interactive 3D figure.
     :rtype: :class:`plotly.graph_objects.Figure`
     """
     go = _import_plotly()
-    fig = go.Figure()
+    if fig is None:
+        fig = go.Figure()
     label = comp_label or component
 
     colours = ["black", "blue", "red", "green", "orange"]
@@ -343,27 +358,31 @@ def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
         colour = colours[idx % len(colours)]
 
         for ex, ez, ev in zip(all_xx, all_zz, all_vals):
+            sv = ev * scale
             # Force diagram line
             fig.add_trace(go.Scatter3d(
-                x=ex, y=ez, z=ev,
+                x=ex, y=ez, z=sv,
                 mode="lines",
                 line=dict(color=colour, width=4),
+                opacity=alpha,
                 name=member,
                 showlegend=False,
             ))
             # Baseline (zero) line
             fig.add_trace(go.Scatter3d(
-                x=ex, y=ez, z=np.zeros_like(ev),
+                x=ex, y=ez, z=np.zeros_like(sv),
                 mode="lines",
                 line=dict(color=colour, width=1, dash="dot"),
+                opacity=alpha,
                 showlegend=False,
             ))
             # Vertical drop-lines connecting diagram to baseline
-            for xi, zi, vi in zip(ex, ez, ev):
+            for xi, zi, vi in zip(ex, ez, sv):
                 fig.add_trace(go.Scatter3d(
                     x=[xi, xi], y=[zi, zi], z=[0, vi],
                     mode="lines",
                     line=dict(color=colour, width=1),
+                    opacity=alpha,
                     showlegend=False,
                 ))
 
@@ -375,8 +394,7 @@ def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
             name=member,
         ))
 
-    fig.update_layout(
-        title=f"{label} Diagram",
+    layout_kw = dict(
         scene=dict(
             xaxis_title="x (m)",
             yaxis_title="z (m)",
@@ -384,11 +402,21 @@ def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
         ),
         legend_title="Member",
     )
+    if title is _AUTO:
+        layout_kw["title"] = f"{label} Diagram"
+    elif title is not None:
+        layout_kw["title"] = title
+    if figsize is not None:
+        layout_kw["width"] = figsize[0] * 100
+        layout_kw["height"] = figsize[1] * 100
+
+    fig.update_layout(**layout_kw)
     return fig
 
 
 def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
-                    loadcase=None):
+                    loadcase=None, *,
+                    fig=None, figsize=None, scale=1.0, title=_AUTO):
     """Build an interactive 3D Plotly figure of deflected shapes.
 
     Each member is drawn as a ``Scatter3d`` trace with markers, accompanied
@@ -399,11 +427,17 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
     :param members: List of member group name strings to include.
     :param component: Displacement component (default ``"y"``).
     :param loadcase: Load case name.  ``None`` uses the first load case.
+    :param fig: Existing Plotly ``Figure`` to add traces to.
+    :param figsize: Figure size in inches ``(width, height)``.
+    :param scale: Multiply plotted values by this factor.
+    :param title: Plot title.  Default auto-generates from component.
+        ``None`` suppresses the title.
     :returns: Interactive 3D figure.
     :rtype: :class:`plotly.graph_objects.Figure`
     """
     go = _import_plotly()
-    fig = go.Figure()
+    if fig is None:
+        fig = go.Figure()
 
     colours = ["blue", "red", "green", "orange", "black"]
 
@@ -412,9 +446,10 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
             ospgrillage_obj, result_obj, member, component, loadcase,
         )
         colour = colours[idx % len(colours)]
+        sv = np.array(vals) * scale
 
         fig.add_trace(go.Scatter3d(
-            x=xx, y=zz, z=vals,
+            x=xx, y=zz, z=sv.tolist(),
             mode="lines+markers",
             line=dict(color=colour, width=4),
             marker=dict(size=3, color=colour),
@@ -428,8 +463,7 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
             showlegend=False,
         ))
 
-    fig.update_layout(
-        title=f"Deflection ({component})",
+    layout_kw = dict(
         scene=dict(
             xaxis_title="x (m)",
             yaxis_title="z (m)",
@@ -437,6 +471,15 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
         ),
         legend_title="Member",
     )
+    if title is _AUTO:
+        layout_kw["title"] = f"Deflection ({component})"
+    elif title is not None:
+        layout_kw["title"] = title
+    if figsize is not None:
+        layout_kw["width"] = figsize[0] * 100
+        layout_kw["height"] = figsize[1] * 100
+
+    fig.update_layout(**layout_kw)
     return fig
 
 
@@ -450,6 +493,15 @@ def plot_force(
     member: str = None,
     option: str = "elements",
     loadcase: str = None,
+    *,
+    figsize=None,
+    ax=None,
+    scale: float = 1.0,
+    title=_AUTO,
+    color: str = "k",
+    fill: bool = True,
+    alpha: float = 0.4,
+    show: bool = False,
 ):
     """
     Plot a force diagram for a grillage model result for a specified component and load case.
@@ -457,21 +509,39 @@ def plot_force(
     .. note::
         For "shell_beam" model type, the function only plots the force diagrams for beam elements only.
 
-
-    :param ospgrillage_obj: Grillage model object
+    :param ospgrillage_obj: Grillage model object.
     :type ospgrillage_obj: OspGrillage
-    :param result_obj: xarray DataSet of results
+    :param result_obj: xarray DataSet of results.
     :type result_obj: xarray DataSet
-    :param component: Force component to plot
+    :param component: Force component to plot (e.g. ``"Mz"``, ``"Fy"``).
     :type component: str
-    :param member: member
+    :param member: Member group name (required).
     :type member: str
-    :param option:
+    :param option: Element query option.
     :type option: str
-    :param loadcase: name string of load case to plot. If not provided, plots from first load case in the order of
-                     xarray loadcase coordinate
+    :param loadcase: Load case name.  If ``None``, uses the first load case.
     :type loadcase: str
-    :returns: Matplotlib figure
+    :param figsize: Figure size in inches ``(width, height)``.
+        Ignored when *ax* is provided.
+    :type figsize: tuple, optional
+    :param ax: Existing matplotlib Axes to plot on.  When provided the
+        function draws on this axes instead of creating a new figure.
+    :type ax: :class:`~matplotlib.axes.Axes`, optional
+    :param scale: Multiply plotted values by this factor (e.g. ``0.001``
+        to convert N to kN).
+    :type scale: float
+    :param title: Plot title.  Default (``_AUTO``) uses the member name.
+        Pass a string to override, or ``None`` to suppress the title.
+    :type title: str or None
+    :param color: Line / fill colour.
+    :type color: str
+    :param fill: If ``True`` (default), shade the area under the diagram.
+    :type fill: bool
+    :param alpha: Fill transparency (0 = transparent, 1 = opaque).
+    :type alpha: float
+    :param show: If ``True``, call ``fig.show()`` before returning.
+    :type show: bool
+    :returns: Matplotlib figure.
     :rtype: :class:`~matplotlib.figure.Figure`
     """
     if member is None:
@@ -481,15 +551,28 @@ def plot_force(
         ospgrillage_obj, result_obj, component, member, loadcase, option,
     )
 
-    fig, ax = plt.subplots()
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.get_figure()
+
     for xx, vals in zip(all_xx, all_values):
-        ax.plot(xx, vals, "-k")
-        ax.fill_between(xx, vals, np.zeros_like(vals), color="k", alpha=0.4)
-    ax.set_title(member)
+        scaled = vals * scale
+        ax.plot(xx, scaled, "-", color=color)
+        if fill:
+            ax.fill_between(xx, scaled, np.zeros_like(scaled),
+                            color=color, alpha=alpha)
+
+    if title is _AUTO:
+        ax.set_title(member)
+    elif title is not None:
+        ax.set_title(title)
     ax.set_xlabel("x (m) ")
     ax.set_ylabel(component)
     fig.tight_layout()
-    fig.show()
+
+    if show:
+        fig.show()
 
     return fig
 
@@ -501,6 +584,13 @@ def plot_defo(
     component: str = None,
     option: str = "nodes",
     loadcase: str = None,
+    *,
+    figsize=None,
+    ax=None,
+    scale: float = 1.0,
+    title=_AUTO,
+    color: str = "b",
+    show: bool = False,
 ):
     """
     Plot a displacement diagram for a grillage model result for a specified component and load case.
@@ -508,22 +598,34 @@ def plot_defo(
     .. note::
         For "shell_beam" model type, the function only plots the force diagrams for beam elements only.
 
-
-    :param ospgrillage_obj: Grillage model object
+    :param ospgrillage_obj: Grillage model object.
     :type ospgrillage_obj: OspGrillage
-    :param result_obj: xarray DataSet of results
+    :param result_obj: xarray DataSet of results.
     :type result_obj: xarray DataSet
-    :param component: Force component to plot
+    :param component: Displacement component (default ``"y"``).
     :type component: str
-    :param member: member
+    :param member: Member group name (required).
     :type member: str
-    :param option: option of :func:`~ospgrillage.osp_grillage.OspGrillage.get_element`,
-                   either "nodes" or "element" (Default nodes)
+    :param option: Node query option, either ``"nodes"`` or ``"element"``.
     :type option: str
-    :param loadcase: name string of load case to plot. If not provided, plots from first load case in the order of
-                 xarray loadcase coordinate
+    :param loadcase: Load case name.  If ``None``, uses the first load case.
     :type loadcase: str
-    :returns: Matplotlib figure
+    :param figsize: Figure size in inches ``(width, height)``.
+        Ignored when *ax* is provided.
+    :type figsize: tuple, optional
+    :param ax: Existing matplotlib Axes to plot on.  When provided the
+        function draws on this axes instead of creating a new figure.
+    :type ax: :class:`~matplotlib.axes.Axes`, optional
+    :param scale: Multiply plotted values by this factor.
+    :type scale: float
+    :param title: Plot title.  Default (``_AUTO``) uses the member name.
+        Pass a string to override, or ``None`` to suppress the title.
+    :type title: str or None
+    :param color: Line colour.
+    :type color: str
+    :param show: If ``True``, call ``fig.show()`` before returning.
+    :type show: bool
+    :returns: Matplotlib figure.
     :rtype: :class:`~matplotlib.figure.Figure`
     """
     if member is None:
@@ -534,12 +636,24 @@ def plot_defo(
         ospgrillage_obj, result_obj, member, dis_comp, loadcase, option,
     )
 
-    fig, ax = plt.subplots()
-    ax.plot(xx_list, values_list, "-b")
-    ax.set_title(member)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.get_figure()
+
+    scaled = np.array(values_list) * scale
+    ax.plot(xx_list, scaled, "-", color=color)
+
+    if title is _AUTO:
+        ax.set_title(member)
+    elif title is not None:
+        ax.set_title(title)
     ax.set_xlabel("x (m) ")
     ax.set_ylabel(dis_comp)
     fig.tight_layout()
+
+    if show:
+        fig.show()
 
     return fig
 
@@ -555,7 +669,7 @@ _MAIN_BEAM_MEMBERS = [
 
 
 def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
-             backend="matplotlib"):
+             backend="matplotlib", **kwargs):
     """
     Plot bending moment diagram (Mz) for one or all main beams.
 
@@ -567,20 +681,28 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     :param member: Member name. If ``None``, plots all main beams.
     :param loadcase: Load case name. If ``None``, uses the first load case.
     :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
+    :param \\**kwargs: Forwarded to the underlying renderer.  See
+        :func:`plot_force` (matplotlib) or the Plotly builder for accepted
+        keyword arguments such as *figsize*, *ax*, *scale*, *title*,
+        *color*, *fill*, *alpha*, and *show*.
     :returns: Single figure when *member* is given, else list of figures.
         For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
     if backend == "plotly":
+        plotly_kw = {k: v for k, v in kwargs.items()
+                     if k in ("figsize", "scale", "title", "alpha")}
+        plotly_kw["fig"] = kwargs.get("ax", None)
         return _plotly_3d_force(
             ospgrillage_obj, result_obj, component="Mz",
             members=members, loadcase=loadcase, comp_label="Mz",
+            **plotly_kw,
         )
     # matplotlib path
     if member is not None:
         return plot_force(
             ospgrillage_obj, result_obj, component="Mz",
-            member=member, loadcase=loadcase,
+            member=member, loadcase=loadcase, **kwargs,
         )
     figs = []
     for m in _MAIN_BEAM_MEMBERS:
@@ -588,7 +710,7 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
             figs.append(
                 plot_force(
                     ospgrillage_obj, result_obj, component="Mz",
-                    member=m, loadcase=loadcase,
+                    member=m, loadcase=loadcase, **kwargs,
                 )
             )
         except (ValueError, KeyError, IndexError):
@@ -597,7 +719,7 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
 
 
 def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
-             backend="matplotlib"):
+             backend="matplotlib", **kwargs):
     """
     Plot shear force diagram (Fy) for one or all main beams.
 
@@ -609,20 +731,26 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     :param member: Member name. If ``None``, plots all main beams.
     :param loadcase: Load case name. If ``None``, uses the first load case.
     :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
+    :param \\**kwargs: Forwarded to the underlying renderer.  See
+        :func:`plot_force` for accepted keyword arguments.
     :returns: Single figure when *member* is given, else list of figures.
         For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
     if backend == "plotly":
+        plotly_kw = {k: v for k, v in kwargs.items()
+                     if k in ("figsize", "scale", "title", "alpha")}
+        plotly_kw["fig"] = kwargs.get("ax", None)
         return _plotly_3d_force(
             ospgrillage_obj, result_obj, component="Fy",
             members=members, loadcase=loadcase, comp_label="Fy",
+            **plotly_kw,
         )
     # matplotlib path
     if member is not None:
         return plot_force(
             ospgrillage_obj, result_obj, component="Fy",
-            member=member, loadcase=loadcase,
+            member=member, loadcase=loadcase, **kwargs,
         )
     figs = []
     for m in _MAIN_BEAM_MEMBERS:
@@ -630,7 +758,7 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
             figs.append(
                 plot_force(
                     ospgrillage_obj, result_obj, component="Fy",
-                    member=m, loadcase=loadcase,
+                    member=m, loadcase=loadcase, **kwargs,
                 )
             )
         except (ValueError, KeyError, IndexError):
@@ -639,7 +767,7 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
 
 
 def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
-                    backend="matplotlib"):
+             backend="matplotlib", **kwargs):
     """
     Plot vertical deflection (y-displacement) for one or all main beams.
 
@@ -651,20 +779,27 @@ def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     :param member: Member name. If ``None``, plots all main beams.
     :param loadcase: Load case name. If ``None``, uses the first load case.
     :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
+    :param \\**kwargs: Forwarded to the underlying renderer.  See
+        :func:`plot_defo` for accepted keyword arguments.
     :returns: Single figure when *member* is given, else list of figures.
         For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
     if backend == "plotly":
+        plotly_kw = {k: v for k, v in kwargs.items()
+                     if k in ("figsize", "scale", "title")}
+        plotly_kw["fig"] = kwargs.get("ax", None)
         return _plotly_3d_defo(
             ospgrillage_obj, result_obj, members=members,
-            component="y", loadcase=loadcase,
+            component="y", loadcase=loadcase, **plotly_kw,
         )
-    # matplotlib path
+    # matplotlib path — filter to defo-compatible kwargs (no fill/alpha)
+    defo_kw = {k: v for k, v in kwargs.items()
+               if k in ("figsize", "ax", "scale", "title", "color", "show")}
     if member is not None:
         return plot_defo(
             ospgrillage_obj, result_obj, member=member,
-            component="y", loadcase=loadcase,
+            component="y", loadcase=loadcase, **defo_kw,
         )
     figs = []
     for m in _MAIN_BEAM_MEMBERS:
@@ -672,7 +807,7 @@ def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
             figs.append(
                 plot_defo(
                     ospgrillage_obj, result_obj, member=m,
-                    component="y", loadcase=loadcase,
+                    component="y", loadcase=loadcase, **defo_kw,
                 )
             )
         except (ValueError, KeyError, IndexError):
