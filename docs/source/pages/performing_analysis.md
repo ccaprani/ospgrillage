@@ -1,6 +1,6 @@
-# Performing analysis
+# Loads, load cases, and analysis
 
-*ospgrillage* contains a load module which wraps `OpenSeesPy` commands to perform load analysis.
+*ospgrillage* contains a load module which wraps `OpenSeesPy` commands to define loads, assemble load cases, and perform analysis.
 
 For all example code in this page, *ospgrillage* is imported as `og`
 
@@ -159,12 +159,12 @@ After load type objects are created, users add the load objects to {class}`~ospg
 DL = create_load_case(name="Dead Load")
 ```
 
-Users then pass load objects as input parameters using `add_load_groups()` function. The following code line shows how the above load types are added to *DL* load case.
+Users then pass load objects as input parameters using `add_load()` function. The following code line shows how the above load types are added to *DL* load case.
 
 ```python
-DL.add_load_groups(point_load)  # each line adds individual load types to the load case
-DL.add_load_groups(Barrier)
-DL.add_load_groups(Lane)
+DL.add_load(point_load)  # each line adds individual load types to the load case
+DL.add_load(Barrier)
+DL.add_load(Lane)
 ```
 
 After adding loads, the {class}`~ospgrillage.load.LoadCase` object is added to grillage model for analysis using the {class}`~ospgrillage.osp_grillage.OspGrillage.add_load_case`. of {class}`~ospgrillage.load.OspGrillage` class. Users repeat this step for any defined load cases.

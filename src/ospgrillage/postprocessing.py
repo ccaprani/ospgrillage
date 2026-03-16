@@ -18,7 +18,16 @@ from ospgrillage.utils import solve_zeta_eta
 
 import vfo.vfo as opsplt
 
-__all__ = ["Envelope", "PostProcessor", "create_envelope", "plot_force", "plot_defo"]
+__all__ = [
+    "Envelope",
+    "PostProcessor",
+    "create_envelope",
+    "plot_force",
+    "plot_defo",
+    "plot_bmd",
+    "plot_sfd",
+    "plot_deflection",
+]
 
 
 def create_envelope(**kwargs):
@@ -359,6 +368,112 @@ def plot_defo(
     # fig.show()
 
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Convenience plotting wrappers
+# ---------------------------------------------------------------------------
+_MAIN_BEAM_MEMBERS = [
+    "exterior_main_beam_1",
+    "interior_main_beam",
+    "exterior_main_beam_2",
+]
+
+
+def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
+    """
+    Plot bending moment diagram (Mz) for one or all main beams.
+
+    When *member* is ``None``, iterates over the three main-beam member groups
+    and returns a list of figures.
+
+    :param ospgrillage_obj: Grillage model object.
+    :param result_obj: xarray DataSet of results.
+    :param member: Member name. If ``None``, plots all main beams.
+    :param loadcase: Load case name. If ``None``, uses the first load case.
+    :returns: Single figure when *member* is given, else list of figures.
+    """
+    if member is not None:
+        return plot_force(
+            ospgrillage_obj, result_obj, component="Mz",
+            member=member, loadcase=loadcase,
+        )
+    figs = []
+    for m in _MAIN_BEAM_MEMBERS:
+        try:
+            figs.append(
+                plot_force(
+                    ospgrillage_obj, result_obj, component="Mz",
+                    member=m, loadcase=loadcase,
+                )
+            )
+        except (ValueError, KeyError, IndexError):
+            pass
+    return figs
+
+
+def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
+    """
+    Plot shear force diagram (Fy) for one or all main beams.
+
+    When *member* is ``None``, iterates over the three main-beam member groups
+    and returns a list of figures.
+
+    :param ospgrillage_obj: Grillage model object.
+    :param result_obj: xarray DataSet of results.
+    :param member: Member name. If ``None``, plots all main beams.
+    :param loadcase: Load case name. If ``None``, uses the first load case.
+    :returns: Single figure when *member* is given, else list of figures.
+    """
+    if member is not None:
+        return plot_force(
+            ospgrillage_obj, result_obj, component="Fy",
+            member=member, loadcase=loadcase,
+        )
+    figs = []
+    for m in _MAIN_BEAM_MEMBERS:
+        try:
+            figs.append(
+                plot_force(
+                    ospgrillage_obj, result_obj, component="Fy",
+                    member=m, loadcase=loadcase,
+                )
+            )
+        except (ValueError, KeyError, IndexError):
+            pass
+    return figs
+
+
+def plot_deflection(ospgrillage_obj, result_obj=None, member=None, loadcase=None):
+    """
+    Plot vertical deflection (y-displacement) for one or all main beams.
+
+    When *member* is ``None``, iterates over the three main-beam member groups
+    and returns a list of figures.
+
+    :param ospgrillage_obj: Grillage model object.
+    :param result_obj: xarray DataSet of results.
+    :param member: Member name. If ``None``, plots all main beams.
+    :param loadcase: Load case name. If ``None``, uses the first load case.
+    :returns: Single figure when *member* is given, else list of figures.
+    """
+    if member is not None:
+        return plot_defo(
+            ospgrillage_obj, result_obj, member=member,
+            component="y", loadcase=loadcase,
+        )
+    figs = []
+    for m in _MAIN_BEAM_MEMBERS:
+        try:
+            figs.append(
+                plot_defo(
+                    ospgrillage_obj, result_obj, member=m,
+                    component="y", loadcase=loadcase,
+                )
+            )
+        except (ValueError, KeyError, IndexError):
+            pass
+    return figs
 
 
 class PostProcessor:

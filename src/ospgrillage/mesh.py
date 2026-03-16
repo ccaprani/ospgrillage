@@ -1707,6 +1707,27 @@ class EdgeControlLine:
         feature: str = "standard",
         **kwargs,
     ):
+        """
+        Initialise edge control line for mesh generation.
+
+        :param edge_ref_point: Reference point ``[x, y, z]`` for this edge.
+        :param width_z: Total transverse width of the bridge.
+        :param edge_width_a: Left edge-beam overhang distance.
+        :param edge_width_b: Right edge-beam overhang distance.
+        :param edge_angle: Skew angle (degrees) for this edge.
+        :param num_long_beam: Number of longitudinal node lines.
+        :param model_plane_y: Elevation of the grillage model plane.
+        :param feature: Reserved for future edge-line variants.
+
+        Keyword arguments
+        -----------------
+        beam_spacing : list of float, optional
+            Custom spacing of longitudinal members (global z-direction).
+            A list of distances where the first and last entries are
+            edge-beam overhangs and middle entries are between-main-beam
+            distances.  Supersedes *num_long_beam* and *edge_width_a/b*.
+            The old name ``beam_z_spacing`` is accepted but deprecated.
+        """
         # set variables
         self.edge_ref_point = edge_ref_point
         self.width_z = width_z
@@ -1720,9 +1741,16 @@ class EdgeControlLine:
         self.z_group_master_pair_list = []
         self.node_z_pair_list_value = []
 
-        self.custom_beam_z_spacing = kwargs.get(
-            "beam_z_spacing", None
-        )  # get a list of custom spacings
+        self.custom_beam_z_spacing = kwargs.get("beam_spacing", None)
+        if self.custom_beam_z_spacing is None:
+            self.custom_beam_z_spacing = kwargs.get("beam_z_spacing", None)
+            if self.custom_beam_z_spacing is not None:
+                import warnings
+                warnings.warn(
+                    "beam_z_spacing is deprecated; use beam_spacing instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
         # check validity of custom points
         if self.custom_beam_z_spacing and not isinstance(
             self.custom_beam_z_spacing, list

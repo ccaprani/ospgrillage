@@ -1,6 +1,7 @@
 import numpy as np  # re-exported: tests and users access ospgrillage.np
 import openseespy.opensees as ops  # re-exported: tests and users access ospgrillage.ops
 import opsvis as opsv  # re-exported: tests and users access ospgrillage.opsv
+import matplotlib.pyplot as plt  # re-exported: users access ospgrillage.plt
 from ospgrillage.utils import *
 from ospgrillage.mesh import *
 from ospgrillage.load import *
@@ -59,4 +60,7 @@ __all__ = [
     "create_envelope",
     "plot_force",
     "plot_defo",
+    "plot_bmd",
+    "plot_sfd",
+    "plot_deflection",
 ]

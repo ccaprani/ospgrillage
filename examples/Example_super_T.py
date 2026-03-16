@@ -70,9 +70,6 @@ w = 11.565 * m  # width
 n_l = 7  # number of longitudinal members
 n_t = 11  # number of transverse members
 edge_dist = 1.05 * m  # distance between edge beam and first exterior beam
-ext_to_int_dist = (
-    2.2775 * m
-)  # distance between first exterior beam and first interior beam
 angle = 0  # skew angle
 mesh_type = "Ortho"
 # a new feature for multi span
@@ -88,7 +85,6 @@ simple_grid = og.create_grillage(
     num_long_grid=n_l,
     num_trans_grid=n_t,
     edge_beam_dist=edge_dist,
-    ext_to_int_dist=ext_to_int_dist,
     mesh_type=mesh_type,
 )
 

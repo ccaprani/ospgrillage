@@ -57,15 +57,15 @@ def test_envelope(bridge_model_42_negative):
     )
     # create basic load case
     barrier_load_case = og.create_load_case(name="Barrier")
-    # barrier_load_case.add_load_groups(Barrier)  # ch
+    # barrier_load_case.add_load(Barrier)  # ch
     barrier_load_case.add_load(Patch1)  # ch
     # 2nd
     barrier_load_case2 = og.create_load_case(name="Barrier2")
-    # barrier_load_case2.add_load_groups(Barrier2)
+    # barrier_load_case2.add_load(Barrier2)
     barrier_load_case2.add_load(Patch2)
     # 3rd
     # barrier_load_case3 = og.create_load_case(name="Barrier3")
-    # barrier_load_case3.add_load_groups(Barrier3)
+    # barrier_load_case3.add_load(Barrier3)
 
     # adding load cases to model
     example_bridge.add_load_case(barrier_load_case)
@@ -152,15 +152,15 @@ def test_plot_force(bridge_model_42_negative):
     )
     # create basic load case
     barrier_load_case = og.create_load_case(name="Barrier")
-    # barrier_load_case.add_load_groups(Barrier)  # ch
+    # barrier_load_case.add_load(Barrier)  # ch
     barrier_load_case.add_load(Patch1)  # ch
     # 2nd
     barrier_load_case2 = og.create_load_case(name="Barrier2")
-    # barrier_load_case2.add_load_groups(Barrier2)
+    # barrier_load_case2.add_load(Barrier2)
     barrier_load_case2.add_load(Patch2)
     # 3rd
     # barrier_load_case3 = og.create_load_case(name="Barrier3")
-    # barrier_load_case3.add_load_groups(Barrier3)
+    # barrier_load_case3.add_load(Barrier3)
 
     # adding load cases to model
     example_bridge.add_load_case(barrier_load_case)
@@ -243,3 +243,85 @@ def test_displacement_getter(bridge_model_42_negative):
     arbitrary_disp = processor.get_arbitrary_displacements(point=[5, 0, 3])  # bigger
 
     assert all(np.isclose(arbitrary_disp * 1e6, [3.1289e-05 * 1e6]))
+
+
+# ---------------------------------------------------------------------------
+# og.plt accessibility
+# ---------------------------------------------------------------------------
+def test_og_plt_accessible():
+    """og.plt should be matplotlib.pyplot."""
+    assert hasattr(og, "plt")
+    fig = og.plt.figure()
+    assert fig is not None
+    og.plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Convenience plotting wrappers
+# ---------------------------------------------------------------------------
+def test_plot_bmd(bridge_model_42_negative):
+    """plot_bmd returns a figure for a single member and a list for all."""
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(load_obj=front_wheel)
+    example_bridge.add_load_case(lc)
+    example_bridge.analyze()
+    results = example_bridge.get_results(local_forces=False)
+
+    # single member
+    fig = og.plot_bmd(example_bridge, results, member="interior_main_beam")
+    assert fig is not None
+
+    # all main beams (returns list)
+    figs = og.plot_bmd(example_bridge, results)
+    assert isinstance(figs, list)
+    assert len(figs) >= 1
+
+
+def test_plot_sfd(bridge_model_42_negative):
+    """plot_sfd returns a figure for a single member and a list for all."""
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(load_obj=front_wheel)
+    example_bridge.add_load_case(lc)
+    example_bridge.analyze()
+    results = example_bridge.get_results(local_forces=False)
+
+    fig = og.plot_sfd(example_bridge, results, member="interior_main_beam")
+    assert fig is not None
+
+    figs = og.plot_sfd(example_bridge, results)
+    assert isinstance(figs, list)
+    assert len(figs) >= 1
+
+
+def test_plot_deflection(bridge_model_42_negative):
+    """plot_deflection returns a figure for a single member and a list for all."""
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(load_obj=front_wheel)
+    example_bridge.add_load_case(lc)
+    example_bridge.analyze()
+    results = example_bridge.get_results(local_forces=False)
+
+    fig = og.plot_deflection(example_bridge, results, member="interior_main_beam")
+    assert fig is not None
+
+    figs = og.plot_deflection(example_bridge, results)
+    assert isinstance(figs, list)
+    assert len(figs) >= 1

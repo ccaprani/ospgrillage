@@ -216,8 +216,8 @@ For multi-load-case or moving load results, *ospgrillage* includes a dedicated
 post-processing module.
 
 ```{note}
-The plotting functions of the post-processing module are at alpha development stage.
-As of version 0.1.0 they are sufficient for plotting components from xarray DataSets.
+The post-processing module supports force diagrams and deflected shapes for
+beam-based model types (`beam_only` and `beam_link`).
 ```
 
 For this section, we refer to an exemplar 28 m super-T bridge (Figure 2). The
@@ -242,3 +242,17 @@ og.plot_force(bridge_28, results, member="exterior_main_beam_2", component="Mz")
 ```
 
 ![Figure 4: Bending moment about z axis of exterior main beam 2.](../images/example_bmd.PNG)
+
+### Convenience plotting functions
+
+For the most common diagrams, convenience wrappers are provided that default to
+plotting all main beams when no `member` is specified:
+
+```python
+og.plot_bmd(bridge_28, results)          # bending moment diagram (Mz)
+og.plot_sfd(bridge_28, results)          # shear force diagram (Fy)
+og.plot_deflection(bridge_28, results)   # vertical deflection (y)
+```
+
+Each returns a list of figures (one per main beam member group).  Pass
+`member="interior_main_beam"` to plot a single member instead.

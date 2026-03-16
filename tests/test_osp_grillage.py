@@ -18,6 +18,67 @@ MPa = N / ((mm) ** 2)
 GPa = kilo * MPa
 
 
+# ---------------------------------------------------------------------------
+# Section / parallel-axis-theorem tests
+# ---------------------------------------------------------------------------
+def test_section_parallel_axis_theorem():
+    """Parallel axis theorem shifts Iz and Iy but not J."""
+    s1 = og.create_section(A=1.0, Iz=2.0, Iy=0.5, J=0.3)
+    assert s1.Iz == 2.0
+    assert s1.Iy == 0.5
+    assert s1.J == 0.3
+
+    s2 = og.create_section(A=1.0, Iz=2.0, Iy=0.5, J=0.3, offset_y=3.0)
+    assert s2.Iz == pytest.approx(2.0 + 1.0 * 9.0)  # 11.0
+    assert s2.Iy == pytest.approx(0.5 + 1.0 * 9.0)   # 9.5
+    assert s2.J == 0.3  # unchanged
+
+
+def test_section_parallel_axis_default_iy():
+    """When Iy is not given it defaults to 0.2*Iz, then gets the offset."""
+    s = og.create_section(A=2.0, Iz=10.0, J=1.0, offset_y=1.5)
+    iy_centroid = 0.2 * 10.0  # default
+    d_sq = 1.5 ** 2
+    assert s.Iz == pytest.approx(10.0 + 2.0 * d_sq)
+    assert s.Iy == pytest.approx(iy_centroid + 2.0 * d_sq)
+
+
+def test_section_parallel_axis_edge_cases():
+    """Edge cases: zero offset, negative offset, missing A."""
+    # offset_y=0 should leave properties unchanged
+    s0 = og.create_section(A=1.0, Iz=2.0, Iy=0.5, J=0.3, offset_y=0.0)
+    assert s0.Iz == 2.0
+    assert s0.Iy == 0.5
+
+    # negative offset is squared, so same result as positive
+    sn = og.create_section(A=1.0, Iz=2.0, Iy=0.5, J=0.3, offset_y=-3.0)
+    sp = og.create_section(A=1.0, Iz=2.0, Iy=0.5, J=0.3, offset_y=3.0)
+    assert sn.Iz == sp.Iz
+    assert sn.Iy == sp.Iy
+
+    # A is None: offset_y should be ignored (no area to shift)
+    sa = og.create_section(Iz=2.0, J=0.3, offset_y=5.0)
+    assert sa.Iz == 2.0
+
+
+# ---------------------------------------------------------------------------
+# beam_z_spacing deprecation test
+# ---------------------------------------------------------------------------
+def test_beam_z_spacing_deprecation_warning(ref_bridge_properties):
+    """Using the old beam_z_spacing kwarg should emit a DeprecationWarning."""
+    I_beam, slab, exterior_I_beam, concrete = ref_bridge_properties
+    with pytest.warns(DeprecationWarning, match="beam_z_spacing is deprecated"):
+        og.create_grillage(
+            bridge_name="dep_test",
+            long_dim=10,
+            width=7,
+            skew=0,
+            num_trans_grid=5,
+            mesh_type="Ortho",
+            beam_z_spacing=[1, 2, 1, 1, 2],
+        )
+
+
 # --------------------------------
 # test creating a basic beam grillage model
 def test_model_instance(bridge_model_42_negative):
@@ -47,7 +108,7 @@ def test_create_shell_link_model(shell_link_bridge):
 
 
 # test creating default beam model without specifying edge beam distance
-def test_ext_to_int_spacing(bridge_model_42_negative_custom_spacing):
+def test_uniform_spacing_no_edge_dist(bridge_model_42_negative_custom_spacing):
     example_bridge = bridge_model_42_negative_custom_spacing
     # og.opsv.plot_model(az_el=(-90, 0), element_labels=0)
     # og.plt.show()
@@ -72,7 +133,7 @@ def test_custom_beam_spacing_points(ref_bridge_properties):
         skew=12,
         num_trans_grid=5,
         mesh_type="Ortho",
-        beam_z_spacing=custom_spacing,
+        beam_spacing=custom_spacing,
     )
 
     # set grillage member to element groups of grillage model
@@ -106,7 +167,7 @@ def test_custom_transverse_and_long_spacing(ref_bridge_properties):
         skew=20,
         mesh_type="Oblique",
         beam_x_spacing=custom_transver_spacing,
-        beam_z_spacing=custom_spacing,
+        beam_spacing=custom_spacing,
     )
 
     # set grillage member to element groups of grillage model
@@ -151,7 +212,7 @@ def test_inputs_custom_spacings_on_ortho_mesh(ref_bridge_properties):
             skew=20,
             mesh_type="Ortho",
             beam_x_spacing=custom_transver_spacing,
-            beam_z_spacing=custom_spacing,
+            beam_spacing=custom_spacing,
         )
 
         # set grillage member to element groups of grillage model

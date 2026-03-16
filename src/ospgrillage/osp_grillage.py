@@ -168,9 +168,11 @@ def create_grillage(**kwargs):
     :type edge_beam_dist: int or float
     :param mesh_type: Type of mesh either "Ortho" or "Oblique" - default "Ortho"
     :type mesh_type: string
-    :param ext_to_int_dist: Distance between internal beams and exterior main beams.
-        If a list of size 2 is provided, the two values are applied to the left and right side respectively.
-    :type ext_to_int_dist: int, float, or list of int/float
+    :param beam_spacing: Custom spacing of longitudinal members (global z-direction).
+        A list of distances where the first and last entries are edge-beam overhangs
+        and middle entries are between-main-beam distances.
+        Supersedes ``num_long_grid`` and ``edge_beam_dist`` when provided.
+    :type beam_spacing: list of int or float
 
     Depending on the ``model_type`` argument, this function returns the relevant concrete class of
     :class:`~ospgrillage.osp_grillage.OspGrillage`.
@@ -246,15 +248,15 @@ class OspGrillage:
         :type edge_beam_dist: int or float
         :param mesh_type: Type of mesh either "Ortho" for orthogonal mesh or "Oblique" for oblique mesh
         :type mesh_type: string
-        :param beam_z_spacing: Custom spacing of longitudinal members (global z-direction).
-            Supersedes ``num_long_grid`` when provided.
-        :type beam_z_spacing: list of int or float
+        :param beam_spacing: Custom spacing of longitudinal members (global z-direction).
+            A list of distances where the first and last entries are edge-beam overhangs
+            and middle entries are between-main-beam distances.
+            Supersedes ``num_long_grid`` and ``edge_beam_dist`` when provided.
+            The old name ``beam_z_spacing`` is accepted but deprecated.
+        :type beam_spacing: list of int or float
         :param beam_x_spacing: Custom spacing of transverse members (global x-direction).
             Supersedes ``num_trans_grid`` when provided.
         :type beam_x_spacing: list of int or float
-        :param ext_to_int_dist: Distance between internal beams and exterior main beams.
-            If a list of size 2 is provided, the two values are applied to the left and right side respectively.
-        :type ext_to_int_dist: int, float, or list of int/float
         :param multi_span_dist_list: List of span lengths (x-direction) for each span in a multi-span model.
         :type multi_span_dist_list: list of int or float
         :param multi_span_num_points: Number of transverse members per span. If not specified, ``num_trans_grid``

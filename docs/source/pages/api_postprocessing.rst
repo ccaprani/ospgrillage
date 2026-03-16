@@ -10,6 +10,9 @@ Factory functions
    ~ospgrillage.postprocessing.create_envelope
    ~ospgrillage.postprocessing.plot_force
    ~ospgrillage.postprocessing.plot_defo
+   ~ospgrillage.postprocessing.plot_bmd
+   ~ospgrillage.postprocessing.plot_sfd
+   ~ospgrillage.postprocessing.plot_deflection
 
 Class reference
 ---------------

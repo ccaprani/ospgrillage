@@ -142,7 +142,9 @@ The {class}`~ospgrillage.osp_grillage.OspGrillage` class takes the following key
 -   `edge_beam_dist`: A `float` distance between exterior longitudinal beams and the edge beam.
 -   `mesh_type`: A `str` mesh type — either `"Ortho"` (orthogonal, default) or `"Oblique"`.
     Orthogonal mesh is not accepted for skew angles less than 11°; the mesh falls back to Oblique.
--   `ext_to_int_dist`: A `float` distance between exterior longitudinal beams and adjacent interior beams.
+-   `beam_spacing`: A `list` of transverse distances defining all longitudinal beam spacings
+    from z = 0 to z = width. The first and last entries are edge overhangs; middle entries
+    are between-main-beam distances. Supersedes `num_long_grid` and `edge_beam_dist` when provided.
 
 Figure 4 shows how the grid numbers and skew angles affects the output mesh of grillage model.
 
@@ -153,6 +155,15 @@ For the example bridge in Figure 2, the following code line creates its {class}`
 ```python
 example_bridge = og.create_grillage(bridge_name="SuperT_10m", long_dim=10, width=5, skew=-21,
                      num_long_grid=7, num_trans_grid=17, edge_beam_dist=1, mesh_type="Ortho")
+```
+
+For non-uniform beam spacing, use `beam_spacing` instead.  The first and last entries
+are edge-beam overhangs; the remaining entries are the gaps between consecutive main beams:
+
+```python
+# 1 m overhang — 2 m — 3 m — 3 m — 2 m — 1 m overhang  (4 main beams + 2 edge beams)
+example_bridge = og.create_grillage(bridge_name="NonUniform", long_dim=20, width=12, skew=0,
+                     num_trans_grid=11, beam_spacing=[1, 2, 3, 3, 2, 1], mesh_type="Ortho")
 ```
 
 ### Coordinate System
