@@ -10,6 +10,54 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-03-16
+
+### Added
+- **Interactive Plotly backend** for `plot_bmd()`, `plot_sfd()`, and `plot_def()`:
+  pass `backend="plotly"` for 3D rotation, zoom, and hover in Jupyter notebooks
+  and browser windows. Plotly is bundled in the `gui` extra
+  (`pip install ospgrillage[gui]`).
+- **`LoadVertex`** namedtuple — the preferred name for the coordinate+magnitude
+  tuple that defines where a load acts and how much.  `LoadPoint` is retained as
+  a backwards-compatible alias.
+- `GrillageMember.section` and `.material` read-only properties.
+- `Mesh.orthogonal` attribute (was missing; code paths that checked it would
+  raise `AttributeError` on oblique meshes).
+- `beam_z_spacing` → `beam_width` deprecation shim in `create_grillage()`: the
+  old name now emits `DeprecationWarning` and maps correctly instead of being
+  silently ignored.
+- `Section(E=…)` / `Section(G=…)` now raise `ValueError` with a clear message
+  (elastic moduli belong on `Material`, not `Section`).
+- 5 new Plotly tests, plus tests for `beam_z_spacing`, `Section(E=)`,
+  `GrillageMember` properties, and `Mesh.orthogonal`.
+
+### Changed
+- `plot_deflection` renamed to `plot_def` (consistent with `plot_bmd` / `plot_sfd`).
+- Documentation restructured: `performing_analysis.md` split into
+  `defining_loads.md` (load types, compound loads, load cases, moving loads) and
+  the "Running analysis" section merged into `getting_results.md` (now titled
+  "Analysis and results").
+- All docs code examples updated to use `LoadVertex` instead of `LoadPoint`.
+- 15+ documentation content fixes: removed non-existent `set_material()` reference,
+  corrected `link_nodes_width` → `beam_width`, `NodalForce` → `NodeForces`,
+  `type=` → `loadtype=`, duplicate member assignments, missing Sphinx
+  cross-references, and sparse pages.
+- Added missing methods to API reference: `set_spring_support`,
+  `set_previous_state`, `store_state`, `parse_moving_load_cases`.
+
+### Fixed
+- GUI code generation: `set_member()` calls wrote `member=interior_main_beam`
+  (unquoted) instead of `member="interior_main_beam"`.
+- Removed stale `html_static_path` and `html_theme_path` from Sphinx `conf.py`
+  (referenced non-existent `_static/` and `_themes/` directories, causing build
+  warnings).
+
+### Deprecated
+- `LoadPoint` — use `LoadVertex` instead.  `LoadPoint` remains as an alias and
+  existing code is unaffected.
+
+---
+
 ## [0.4.1] — 2026-03-09
 
 ### Added

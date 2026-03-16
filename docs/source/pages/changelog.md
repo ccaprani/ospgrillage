@@ -2,6 +2,28 @@
 
 Here is the summary change log for *ospgrillage*. Full details of commit logs can be found in the [commit history](https://github.com/MonashSmartStructures/ospgrillage/commits/main). The complete machine-readable changelog is maintained in [CHANGELOG.md](https://github.com/MonashSmartStructures/ospgrillage/blob/main/CHANGELOG.md) at the repository root.
 
+## Version 0.5.0 (March 2026)
+
+**New features**
+
+-   Interactive Plotly backend for `plot_bmd()`, `plot_sfd()`, and `plot_def()` — pass `backend="plotly"` for 3D rotation, zoom, and hover. Install with `pip install ospgrillage[gui]`.
+-   `LoadVertex` namedtuple replaces `LoadPoint` as the preferred name for load coordinate+magnitude tuples. `LoadPoint` is kept as a backwards-compatible alias.
+
+**API fixes**
+
+-   `beam_z_spacing` now maps to `beam_width` with a `DeprecationWarning` (was silently ignored).
+-   `Section(E=…)` / `Section(G=…)` now raise `ValueError` (elastic moduli belong on `Material`).
+-   Added `GrillageMember.section` and `.material` read-only properties.
+-   Added `Mesh.orthogonal` attribute (previously raised `AttributeError` on oblique meshes).
+-   Fixed GUI `set_member()` code generation (unquoted member names).
+
+**Documentation**
+
+-   `performing_analysis.md` split into `defining_loads.md` and merged "Running analysis" into `getting_results.md` ("Analysis and results").
+-   15+ content fixes: removed non-existent `set_material()`, corrected `link_nodes_width` → `beam_width`, `NodalForce` → `NodeForces`, `type=` → `loadtype=`, duplicate member assignments, added Sphinx cross-references throughout, added missing API methods.
+-   Removed stale `html_static_path` / `html_theme_path` from `conf.py`.
+-   `plot_deflection` renamed to `plot_def` (consistent with `plot_bmd` / `plot_sfd`).
+
 ## Version 0.4.1 (March 2026)
 
 **Code changes**
