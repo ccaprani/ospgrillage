@@ -7,6 +7,7 @@ Here is the summary change log for *ospgrillage*. Full details of commit logs ca
 **New features**
 
 -   Interactive Plotly backend for `plot_bmd()`, `plot_sfd()`, and `plot_def()` — pass `backend="plotly"` for 3D rotation, zoom, and hover. Install with `pip install ospgrillage[gui]`.
+-   Plotting keyword arguments for all plotting functions (`plot_force`, `plot_defo`, `plot_bmd`, `plot_sfd`, `plot_def`): `figsize`, `ax` (existing matplotlib Axes), `scale`, `title`, `color`, `fill`, `alpha`, and `show`. Plotly equivalents are forwarded through convenience wrappers.
 -   `LoadVertex` namedtuple replaces `LoadPoint` as the preferred name for load coordinate+magnitude tuples. `LoadPoint` is kept as a backwards-compatible alias.
 
 **API fixes**

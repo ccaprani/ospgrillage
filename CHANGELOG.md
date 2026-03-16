@@ -28,8 +28,14 @@ the project adheres to [Semantic Versioning](https://semver.org/).
   silently ignored.
 - `Section(E=…)` / `Section(G=…)` now raise `ValueError` with a clear message
   (elastic moduli belong on `Material`, not `Section`).
-- 5 new Plotly tests, plus tests for `beam_z_spacing`, `Section(E=)`,
-  `GrillageMember` properties, and `Mesh.orthogonal`.
+- **Plotting keyword arguments** for all plotting functions (`plot_force`,
+  `plot_defo`, `plot_bmd`, `plot_sfd`, `plot_def`): `figsize`, `ax` (existing
+  matplotlib Axes), `scale`, `title`, `color`, `fill`, `alpha`, and `show`.
+  Plotly equivalents (`fig`, `figsize`, `scale`, `title`, `alpha`) are forwarded
+  through convenience wrappers.
+- 5 new Plotly tests, 8 new plotting-kwargs tests, plus tests for
+  `beam_z_spacing`, `Section(E=)`, `GrillageMember` properties, and
+  `Mesh.orthogonal`.
 
 ### Changed
 - `plot_deflection` renamed to `plot_def` (consistent with `plot_bmd` / `plot_sfd`).
