@@ -5,7 +5,7 @@
 
 model_templates
 mesh_features
-performing_analysis
+defining_loads
 getting_results
 examples
 ospgui

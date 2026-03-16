@@ -1,9 +1,26 @@
-# Getting Results
+# Analysis and results
 
 For all example code in this page, *ospgrillage* is imported as `og`
 
 ```python
 import ospgrillage as og
+```
+
+## Running analysis
+
+Once all defined load cases (static and moving) have been added to the grillage object, analysis can be conducted.
+
+To analyse load case(s), call {meth}`~ospgrillage.osp_grillage.OspGrillage.analyze`. By default this runs all defined load cases. To run only specific load cases, pass a load case name `str` or a `list` of names to the `load_case` keyword argument. The following example shows the various options:
+
+```python
+# analyze all
+example_bridge.analyze()
+# or a single str
+example_bridge.analyze(load_case="DL")
+# or a single element list
+example_bridge.analyze(load_case=["DL"])
+# or a list of multiple load cases
+example_bridge.analyze(load_case=["DL","SDL"])
 ```
 
 ## Extracting results
