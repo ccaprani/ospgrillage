@@ -2411,7 +2411,14 @@ class OspGrillage:
         # reading common elements off namestring
         if namestring == "transverse_slab":
             extracted_ele = self.Mesh_obj.trans_ele
-            # TODO
+            if options == node_option:
+                node_set = set()
+                for ele in extracted_ele:
+                    node_set.add(ele[1])
+                    node_set.add(ele[2])
+                sorted_return_list = sorted(list(node_set))
+            elif options == element_option:
+                sorted_return_list = [ele[0] for ele in extracted_ele]
         elif namestring == "start_edge" or namestring == "end_edge":
             extracted_ele = []
             valid_groups = self.common_grillage_element_z_group[namestring]
