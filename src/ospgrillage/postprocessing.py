@@ -1090,34 +1090,14 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
             showlegend=False,
         ))
 
-    # Layout — for shell models, boost the depth axis so the beam offset is visible
-    if links:
-        all_x = [c[0] for c in all_nodes.values()]
-        all_z = [c[2] for c in all_nodes.values()]
-        all_y = [c[1] for c in all_nodes.values()]
-        x_range = (max(all_x) - min(all_x)) or 1
-        z_range = (max(all_z) - min(all_z)) or 1
-        y_range = (max(all_y) - min(all_y)) or 1
-        # Boost depth to ~15% of span so offset beams are clearly visible
-        depth_boost = max(0.15 * x_range / y_range, 1)
-        scene_kw = dict(
-            xaxis_title="x (m)",
-            yaxis_title="z (m)",
-            zaxis_title="y (m)",
-            aspectmode="manual",
-            aspectratio=dict(
-                x=x_range, y=z_range, z=y_range * depth_boost,
-            ),
-        )
-    else:
-        scene_kw = dict(
+    # Layout — equal axis scaling (true proportions)
+    layout_kw = dict(
+        scene=dict(
             xaxis_title="x (m)",
             yaxis_title="z (m)",
             zaxis_title="y (m)",
             aspectmode="data",
-        )
-    layout_kw = dict(
-        scene=scene_kw,
+        ),
         legend_title="Member",
     )
     if title is _AUTO:
