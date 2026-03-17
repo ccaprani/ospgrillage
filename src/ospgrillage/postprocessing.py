@@ -538,7 +538,7 @@ def plot_force(
     :type fill: bool
     :param alpha: Fill transparency (0 = transparent, 1 = opaque).
     :type alpha: float
-    :param show: If ``True``, call ``fig.show()`` before returning.
+    :param show: If ``True``, call ``plt.show()`` before returning.
     :type show: bool
     :returns: Matplotlib figure.
     :rtype: :class:`~matplotlib.figure.Figure`
@@ -571,7 +571,7 @@ def plot_force(
     fig.tight_layout()
 
     if show:
-        fig.show()
+        plt.show()
 
     return fig
 
@@ -622,7 +622,7 @@ def plot_defo(
     :type title: str or None
     :param color: Line colour.
     :type color: str
-    :param show: If ``True``, call ``fig.show()`` before returning.
+    :param show: If ``True``, call ``plt.show()`` before returning.
     :type show: bool
     :returns: Matplotlib figure.
     :rtype: :class:`~matplotlib.figure.Figure`
@@ -652,7 +652,7 @@ def plot_defo(
     fig.tight_layout()
 
     if show:
-        fig.show()
+        plt.show()
 
     return fig
 
@@ -933,7 +933,7 @@ def _plot_model_matplotlib(grillage_obj, *, figsize=None, ax=None,
 
     fig.tight_layout()
     if show:
-        fig.show()
+        plt.show()
 
     return fig
 
@@ -1056,7 +1056,7 @@ def plot_model(grillage_obj, *, backend="matplotlib", **kwargs):
     :type show_element_labels: bool
     :param color_by_member: Colour elements by member group.  Default ``True``.
     :type color_by_member: bool
-    :param show: If ``True``, call ``fig.show()`` before returning.
+    :param show: If ``True``, call ``plt.show()`` before returning.
     :type show: bool
     :returns: Matplotlib or Plotly figure.
     :rtype: :class:`~matplotlib.figure.Figure` or

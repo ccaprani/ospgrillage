@@ -2572,7 +2572,7 @@ class ShellLinkMesh(Mesh):
                     for key, val in self.span_group_to_x_groups.items()
                     if self.node_spec[n2]["x_group"] in val
                 ]
-                if n1_span_group == n2_span_group:
+                if n1_span_group and n1_span_group == n2_span_group:
                     span_group_key = n1_span_group[0]
                     self._store_ele_tag_respect_to_mesh_group(
                         counter=self.element_counter, span_group=span_group_key
