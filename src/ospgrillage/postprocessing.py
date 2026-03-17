@@ -1086,6 +1086,7 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
 
     if show:
         fig.show()
+        return None  # avoid Jupyter double-display via _repr_html_
 
     return fig
 
