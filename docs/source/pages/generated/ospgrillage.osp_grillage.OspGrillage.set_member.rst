@@ -1,0 +1,6 @@
+﻿OspGrillage.set\_member
+=======================
+
+.. currentmodule:: ospgrillage.osp_grillage
+
+.. automethod:: OspGrillage.set_member

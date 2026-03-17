@@ -308,7 +308,7 @@ def add_analysis_to_simple_grid(create_grillage):
             name="Point",
             point1=ospg.create_load_vertex(x=L / 2, z=p, p=P),
         )
-        test_points_load.add_load(load_obj=point)
+        test_points_load.add_load(point)
 
     points_case = ospg.create_load_case(name=load_name[1])
     points_case.add_load(test_points_load)
@@ -323,7 +323,7 @@ def add_analysis_to_simple_grid(create_grillage):
             name="Point",
             point1=ospg.create_load_vertex(x=0, z=p, p=P),
         )
-        test_points_load.add_load(load_obj=point)
+        test_points_load.add_load(point)
 
     test_points_load.set_global_coord(ospg.Point(L / 2, 0, 0))
     # shift from local to global
@@ -370,7 +370,7 @@ def add_analysis_to_simple_grid(create_grillage):
     for i, _ in enumerate(xs):
         truck_point = ospg.create_load_vertex(x=xs[i], z=zs[i], p=P)
         two_axle_truck.add_load(
-            load_obj=ospg.create_load(
+            load=ospg.create_load(
                 loadtype="point", name="Point", point1=truck_point
             )
         )

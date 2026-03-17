@@ -128,8 +128,8 @@ The following code creates a Compound load and adds the created load objects to 
 
 ```python
 C_Load = og.create_compound_load(name = "Axle tandem")  # constructor of compound load
-C_Load.add_load(load_obj=wheel_1) # add wheel_1
-C_Load.add_load(load_obj=wheel_2) # add wheel_2
+C_Load.add_load(wheel_1) # add wheel_1
+C_Load.add_load(wheel_2) # add wheel_2
 ```
 
 After defining all required load objects, {class}`~ospgrillage.load.CompoundLoad` requires users to define the global coordinate to map the origin of the local coordinate system to the global coordinate space. This is done using {meth}`~ospgrillage.load.CompoundLoad.set_global_coord`, passing a {class}`~ospgrillage.mesh.Point` `namedtuple` `(x, y, z)` as seen in Figure 5. If not specified, the mapping's reference point defaults to the **Origin** (0, 0, 0).
@@ -207,7 +207,7 @@ tandem = og.create_compound_load("Two wheel vehicle")
 
 move_line = og.create_moving_load(name="Line Load moving") # moving load obj
 move_line.set_path(single_path)   # set path
-move_line.add_load(load_obj=Line)  # add compound load to moving load
+move_line.add_load(Line)  # add compound load to moving load
 ```
 
 From here, use {meth}`~ospgrillage.osp_grillage.OspGrillage.add_load_case` to add the moving load to the grillage model. The function automatically creates multiple incremental {ref}`load-cases`, each corresponding to a load position along the moving path.
@@ -229,6 +229,6 @@ The following example shows this procedure:
 moving_load_group = og.create_moving_load(name="Line Load moving",global_increment=20)
 
 # add load + their respective path
-move_load_group.add_load(load_obj=truck_a,path_obj=path_a)
-move_load_group.add_load(load_obj=truck_b,path_obj=path_b)
+move_load_group.add_load(truck_a,path_obj=path_a)
+move_load_group.add_load(truck_b,path_obj=path_b)
 ```

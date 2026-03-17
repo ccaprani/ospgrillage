@@ -147,7 +147,7 @@ for p in p_list:
     point = og.create_load(
         loadtype="point", name="Point", point1=og.create_load_vertex(x=L / 2, z=p, p=P)
     )
-    test_points_load.add_load(load_obj=point)
+    test_points_load.add_load(point)
 
 # Create load case, add loads, and assign
 points_case = og.create_load_case(name=static_cases_names[1])
@@ -163,7 +163,7 @@ for p in p_list:
     point = og.create_load(
         loadtype="point", name="Point", point1=og.create_load_vertex(x=0, z=p, p=P)
     )
-    test_points_load.add_load(load_obj=point)
+    test_points_load.add_load(point)
 
 test_points_load.set_global_coord(og.Point(L / 2, 0, 0))  # shift from local to global
 
@@ -214,10 +214,10 @@ point4 = og.create_load(
 )
 
 # add load to Compound load
-two_axle_truck.add_load(load_obj=point1)
-two_axle_truck.add_load(load_obj=point2)
-two_axle_truck.add_load(load_obj=point3)
-two_axle_truck.add_load(load_obj=point4)
+two_axle_truck.add_load(point1)
+two_axle_truck.add_load(point2)
+two_axle_truck.add_load(point3)
+two_axle_truck.add_load(point4)
 
 # create path object in global coordinate system - centre line running of entire span
 # when local coord: the path describes where the moving load *origin* is to start and end

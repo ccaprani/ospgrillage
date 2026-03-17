@@ -1949,35 +1949,37 @@ class OspGrillage:
     # ---------------------------------------------------------------
     # interface functions for load analysis utilities
     def add_load_case(
-        self, load_case_obj: Union[LoadCase, MovingLoad], load_factor=1
+        self, load_case: Union[LoadCase, MovingLoad], load_factor=1
     ) -> None:
         """
-        Function to add load cases to Ospllage grillage model. Function also adds moving load cases
+        Add a load case or moving load to the grillage model.
 
-        :param load_factor: Optional load factor for the prescribed load case. Default = 1
-        :param load_case_obj: LoadCase or MovingLoad object
-        :type load_case_obj: LoadCase,MovingLoad
+        :param load_case: LoadCase or MovingLoad object.
+        :type load_case: LoadCase or MovingLoad
+        :param load_factor: Optional load factor for the prescribed load case.
+            Default = 1.
+        :type load_factor: float
 
         """
 
-        if isinstance(load_case_obj, LoadCase):
+        if isinstance(load_case, LoadCase):
             # update the load command list of load case object
-            load_str = self._distribute_load_types_to_model(load_case_obj=load_case_obj)
+            load_str = self._distribute_load_types_to_model(load_case_obj=load_case)
             # store load case + load command in dict and add to load_case_list
             load_case_dict = {
-                "name": load_case_obj.name,
-                "loadcase": deepcopy(load_case_obj),
+                "name": load_case.name,
+                "loadcase": deepcopy(load_case),
                 "load_command": load_str,
                 "load_factor": load_factor,
-            }  # FORMATTING HERE
+            }
 
             self.load_case_list.append(load_case_dict)
             if self.diagnostics:
-                logger.info("Load Case: %s added", load_case_obj.name)
-        elif isinstance(load_case_obj, MovingLoad):
+                logger.info("Load Case: %s added", load_case.name)
+        elif isinstance(load_case, MovingLoad):
             # get the list of individual load cases
             list_of_incr_load_case_dict = []
-            moving_load_obj = load_case_obj
+            moving_load_obj = load_case
             # object method to create incremental load cases representing the position of the load
             moving_load_obj.parse_moving_load_cases()
 

@@ -1,0 +1,6 @@
+﻿create\_member
+==============
+
+.. currentmodule:: ospgrillage.members
+
+.. autofunction:: create_member

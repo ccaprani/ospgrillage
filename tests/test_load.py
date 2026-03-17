@@ -41,9 +41,9 @@ def test_compound_load_positions():
     Barrier = og.LineLoading(point1=barrierpoint_1, point2=barrierpoint_2)
 
     M1600 = og.create_compound_load(name="Lane and Barrier")
-    M1600.add_load(load_obj=Single)
+    M1600.add_load(Single)
     M1600.add_load(
-        load_obj=Barrier
+        load=Barrier
     )  # this overwrites the current global pos of line load
     # the expected midpoint (reference point initial is 6,0,0) is now at 9,0,5 (6+3, 0+0, 5+0)
     # when setting the global coordinate, the global coordinate is added with respect to ref point (9,0,5)
@@ -680,12 +680,12 @@ def test_local_vs_global_coord_settings():
 
     M1600_local = og.CompoundLoad("Truck model")
     M1600_local.add_load(
-        load_obj=local_point_load
+        load=local_point_load
     )  # if local_coord is set, append the local coordinate of the point load
     M1600_local.set_global_coord(og.Point(5, 0, -2))
 
     M1600_global = og.CompoundLoad("Truck model global")
-    M1600_global.add_load(load_obj=global_point_load)
+    M1600_global.add_load(global_point_load)
     assert (
         M1600_local.compound_load_obj_list[0].load_point_1
         == M1600_global.compound_load_obj_list[0].load_point_1
@@ -709,7 +709,7 @@ def test_moving_load_case(bridge_model_42_negative):
     )  # create path object
     move_point = og.create_moving_load(name="single_moving_point")
     move_point.set_path(single_path)
-    move_point.add_load(load_obj=front_wheel)
+    move_point.add_load(front_wheel)
     example_bridge.add_load_case(move_point)
 
     example_bridge.analyze()
@@ -746,7 +746,7 @@ def test_moving_load_and_basic_load_together(bridge_model_42_negative):
     )  # create path object
     move_point = og.create_moving_load(name="single_moving_point")
     move_point.set_path(single_path)
-    move_point.add_load(load_obj=front_wheel)
+    move_point.add_load(front_wheel)
     example_bridge.add_load_case(move_point)
 
     # example_bridge.analyze(all=True)
@@ -777,8 +777,8 @@ def test_moving_compound_load(bridge_model_42_negative):
         shape_function="hermite",
     )  # Single point load 50 N
     # compound the point loads
-    M1600.add_load(load_obj=back_wheel)
-    M1600.add_load(load_obj=front_wheel)
+    M1600.add_load(back_wheel)
+    M1600.add_load(front_wheel)
     M1600.set_global_coord(og.Point(0, 0, 0))
 
     truck = og.create_moving_load(name="Truck 1")
@@ -786,7 +786,7 @@ def test_moving_compound_load(bridge_model_42_negative):
         start_point=og.Point(2, 0, 2), end_point=og.Point(4, 0, 2)
     )  # Path object
     truck.set_path(path_obj=single_path)
-    truck.add_load(load_obj=M1600)
+    truck.add_load(M1600)
 
     example_bridge.add_load_case(truck)
     example_bridge.analyze()
@@ -1406,7 +1406,7 @@ def test_moving_load_add_load_no_path_raises():
     lc = og.create_load_case(name="lc_for_ml")
     lc.add_load(pt)
     with pytest.raises(ValueError):
-        ml.add_load(load_obj=lc)
+        ml.add_load(lc)
         ml.parse_moving_load_cases()
 
 

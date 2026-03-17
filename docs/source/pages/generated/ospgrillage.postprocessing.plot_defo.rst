@@ -1,0 +1,6 @@
+﻿plot\_defo
+==========
+
+.. currentmodule:: ospgrillage.postprocessing
+
+.. autofunction:: plot_defo

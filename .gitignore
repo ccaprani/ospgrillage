@@ -33,6 +33,7 @@ tags
 
 # Sphinx documentation
 docs/build/
+docs/_build/
 docs/source/_static/
 
 # Spyder project settings

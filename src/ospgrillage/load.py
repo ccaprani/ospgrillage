@@ -1046,7 +1046,7 @@ class CompoundLoad:
         self.centroid = Point(0, 0, 0)  # named tuple Point
         self.global_coord = self.centroid
 
-    def add_load(self, load_obj: Loads):
+    def add_load(self, load: Loads):
         """
         Adds a :class:`~ospgrillage.load.Load` to compound load group.
         If a local_coord parameter is given, this new local_coord overwrites the coordinates (either local or global) of the load object.
@@ -1054,8 +1054,8 @@ class CompoundLoad:
         .. note::
             If load object is defined using local coordinate and local_coord is None, its default local coord precedes.
 
-        :param load_obj: Load object
-        :type load_obj: PointLoad,LineLoading,PatchLoading
+        :param load: Load object.
+        :type load: PointLoad, LineLoading, PatchLoading
         :param local_coord: Local coordinate of load object
         :type local_coord: Point namedTuple
 
@@ -1063,7 +1063,7 @@ class CompoundLoad:
         # update the load obj to be part of compound load by first
         # shifting all load points relative to centroid of defined load class
         # then shifting centroid and load_points relative to A Local Coordinate system
-        load_obj_copy = deepcopy(load_obj)
+        load_obj_copy = deepcopy(load)
         # check if input load object is valid (local vs global coordinate) system.
         # If local load + local_coord input, raise ValueError
         # if local_coord is not None and any(load_obj_copy.local_point_list):
@@ -1144,12 +1144,12 @@ class LoadCase:
         self.position = None  # init position list
         self.load_command_list = []  # list of openseespy load commands
 
-    def add_load(self, load_obj: Union[Loads, CompoundLoad], **kwargs):
+    def add_load(self, load: Union[Loads, CompoundLoad], **kwargs):
         """
         Add a load or compound load to this load case.
 
-        :param load_obj: The load to add.
-        :type load_obj: Loads or CompoundLoad
+        :param load: The load to add.
+        :type load: Loads or CompoundLoad
         :param global_coord_of_load_obj: Required when the load is defined in
             local coordinates. Sets the origin of the local coordinate system
             onto the global coordinate of the grillage.
@@ -1160,9 +1160,9 @@ class LoadCase:
         """
         load_dict = dict()
         load_dict.setdefault(
-            "load", deepcopy(load_obj)
+            "load", deepcopy(load)
         )  # create copy of object instance
-        # check if load_obj's load points are local points, if True, check if kwargs global coord is provided
+        # check if load's load points are local points, if True, check if kwargs global coord is provided
         global_coord_of_load_obj: Point = kwargs.get("global_coord_of_load_obj", None)
 
         load_factor = kwargs.get("load_factor", 1)
@@ -1259,20 +1259,23 @@ class MovingLoad:
         # else, valid input for setting a basic moving load - proceed setting common path variable
         self.common_path = path_obj
 
-    def add_load(self, load_obj: Union[Loads, CompoundLoad], path_obj=None):
+    def add_load(self, load: Union[Loads, CompoundLoad], path_obj=None):
         """
-        Function to set a load type (Loads class object) with its path (Path class object). Function accepts compound load (Compound load class) as a load input, which in turn sets the path object to all loads within the compound
+        Set a load type with its path.  Accepts compound load objects,
+        which in turn sets the path object to all loads within the compound
         load group.
 
-        :param load_obj: Loads class object , or Compound load object
-        :param path_obj: Path class object - this is for advance use, where users specify unique path object for each load within the moving load object.
+        :param load: Load or compound-load object.
+        :type load: Loads or CompoundLoad
+        :param path_obj: Path class object — for advanced use, where users
+            specify a unique path object for each load within the moving load.
 
         """
         # if no path object is added, set empty list to path_obj. The load group will be treated as a static load
         # present throughout the movement of other load groups (added to the series of moving load case)
 
         load_pair_path = dict()
-        load_pair_path.setdefault("load", load_obj)
+        load_pair_path.setdefault("load", load)
         # check if basic moving load case
         if self.common_path and self.global_increment is None:
             load_pair_path.setdefault(
@@ -1639,7 +1642,7 @@ class LoadModel:
             for x in load_positions_x:
                 vert = create_load_vertex(x=x, z=z, p=wheel_load)
                 point = create_load(loadtype="point", name="M1600 point", point1=vert)
-                M1600_vehicle.add_load(load_obj=point)
+                M1600_vehicle.add_load(point)
 
         return M1600_vehicle
 
