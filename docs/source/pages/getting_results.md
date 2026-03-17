@@ -39,12 +39,14 @@ The first call returns results for every load case; the second filters to one.
 
 The returned object is an [xarray Dataset](http://xarray.pydata.org/en/stable/generated/xarray.Dataset.html) — think of it as a multi-dimensional, labelled table. Rather than accessing data by integer index (row 3, column 7), you access it by *name* (`Loadcase="Barrier"`, `Component="Mz_i"`). This makes result queries self-describing and much less error-prone.
 
-The Dataset contains three named **data variables**:
+The Dataset contains five named **data variables**:
 
 | Variable | Axes (dimensions) | Contents |
 |---|---|---|
-| `displacements` | Loadcase × Node × Component | Translations (dx, dy, dz) and rotations (theta_x/y/z) at each node |
-| `forces` | Loadcase × Element × Component | Internal forces (Mx, My, Mz, Vx, Vy, Vz) at each element end (_i, _j) |
+| `displacements` | Loadcase × Node × Component | Translations (x, y, z) and rotations (theta_x, theta_y, theta_z) at each node |
+| `velocity` | Loadcase × Node × Component | Velocities (dx, dy, dz) and angular velocities (dtheta_x/y/z) |
+| `acceleration` | Loadcase × Node × Component | Accelerations (ddx, ddy, ddz) and angular accelerations |
+| `forces` | Loadcase × Element × Component | Internal forces (Vx, Vy, Vz, Mx, My, Mz) at each element end (_i, _j) |
 | `ele_nodes` | Element × Nodes | Which node tags (i, j) belong to each element |
 
 For a {ref}`shell-hybrid-model`, forces are split into `forces_beam` / `forces_shell`
@@ -85,16 +87,15 @@ ele_array   = all_result.ele_nodes     # element→node connectivity
 
 ### Available force and displacement components
 
-To see the full list of component labels:
+Each DataArray has its own `Component` coordinate.  To see the labels:
 
 ```python
-force_array.coords['Component'].values
-```
+disp_array.coords['Component'].values
+# array(['x', 'y', 'z', 'theta_x', 'theta_y', 'theta_z'])
 
-```
-array(['Mx_i', 'Mx_j', 'My_i', 'My_j', 'Mz_i', 'Mz_j', 'Vx_i', 'Vx_j',
-       'Vy_i', 'Vy_j', 'Vz_i', 'Vz_j', 'dx', 'dy', 'dz', 'theta_x',
-       'theta_y', 'theta_z'], dtype='<U7')
+force_array.coords['Component'].values
+# array(['Vx_i', 'Vy_i', 'Vz_i', 'Mx_i', 'My_i', 'Mz_i',
+#        'Vx_j', 'Vy_j', 'Vz_j', 'Mx_j', 'My_j', 'Mz_j'])
 ```
 
 Suffix `_i` / `_j` denotes the start / end node of the element respectively.
@@ -105,8 +106,8 @@ Suffix `_i` / `_j` denotes the start / end node of the element respectively.
 Use xarray's `.sel()` to pick results by *name*, and `.isel()` to pick by *integer position*:
 
 ```python
-# All nodes, one component
-disp_array.sel(Component='dy')
+# All nodes, one component — vertical displacement
+disp_array.sel(Component='y')
 
 # One load case, one node
 disp_array.sel(Loadcase="patch load case", Node=20)
@@ -173,13 +174,13 @@ all load cases. Use {func}`~ospgrillage.postprocessing.create_envelope` to build
 {class}`~ospgrillage.postprocessing.Envelope` object, then call `.get()`:
 
 ```python
-envelope = og.create_envelope(ds=comb_result, load_effect="dy", array="displacements")
+envelope = og.create_envelope(ds=comb_result, load_effect="y", array="displacements")
 disp_env = envelope.get()
 print(disp_env)
 ```
 
-By default `get()` returns, for each node, the *name of the load case* that produced
-the maximum value of `dy`:
+By default `get()` returns, for each node, the maximum value of vertical
+displacement `y`:
 
 ```
 <xarray.DataArray 'Loadcase' (Node: 77, Component: 18)>
