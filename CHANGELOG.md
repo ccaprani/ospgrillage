@@ -33,11 +33,19 @@ the project adheres to [Semantic Versioning](https://semver.org/).
   matplotlib Axes), `scale`, `title`, `color`, `fill`, `alpha`, and `show`.
   Plotly equivalents (`fig`, `figsize`, `scale`, `title`, `alpha`) are forwarded
   through convenience wrappers.
-- 5 new Plotly tests, 8 new plotting-kwargs tests, plus tests for
-  `beam_z_spacing`, `Section(E=)`, `GrillageMember` properties, and
+- **`plot_model()`** function for visualising grillage mesh geometry with
+  `backend="matplotlib"` (2-D plan view) and `backend="plotly"` (interactive 3-D).
+  Replaces `og.opsv.plot_model()` and `og.opsplt.plot_model()`.
+- 5 new Plotly tests, 8 new plotting-kwargs tests, 5 new plot_model tests, plus
+  tests for `beam_z_spacing`, `Section(E=)`, `GrillageMember` properties, and
   `Mesh.orthogonal`.
 
 ### Changed
+- **`vfo` is no longer a required dependency.** It is still accessible via
+  `og.opsplt` (with a deprecation warning) if installed, but `pip install
+  ospgrillage` no longer pulls it in. Use `og.plot_model()` instead.
+- `og.opsv` and `og.opsplt` re-exports now emit `DeprecationWarning`. Use
+  `og.plot_model()` for mesh visualisation.
 - `plot_deflection` renamed to `plot_def` (consistent with `plot_bmd` / `plot_sfd`).
 - Documentation restructured: `performing_analysis.md` split into
   `defining_loads.md` (load types, compound loads, load cases, moving loads) and

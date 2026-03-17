@@ -1,6 +1,8 @@
+import warnings as _warnings
+
 import numpy as np  # re-exported: tests and users access ospgrillage.np
 import openseespy.opensees as ops  # re-exported: tests and users access ospgrillage.ops
-import opsvis as opsv  # re-exported: tests and users access ospgrillage.opsv
+import opsvis as opsv  # used internally by postprocessing (section_force_distribution_3d)
 import matplotlib.pyplot as plt  # re-exported: users access ospgrillage.plt
 from ospgrillage.utils import *
 from ospgrillage.mesh import *
@@ -55,7 +57,7 @@ __all__ = [
     "Point",
     "Mesh",
     "create_point",
-    # Post-processing
+    # Post-processing & plotting
     "Envelope",
     "PostProcessor",
     "create_envelope",
@@ -64,4 +66,37 @@ __all__ = [
     "plot_bmd",
     "plot_sfd",
     "plot_def",
+    "plot_model",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatible lazy access for deprecated re-exports
+# ---------------------------------------------------------------------------
+# Hide opsv from the public namespace — it is imported above for internal use
+# by postprocessing.py but should not be accessed as og.opsv by users.
+def __getattr__(name):
+    if name == "opsv":
+        _warnings.warn(
+            "og.opsv is deprecated — use og.plot_model() for mesh visualisation. "
+            "Direct opsv access will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return opsv
+    if name == "opsplt":
+        _warnings.warn(
+            "og.opsplt is deprecated — use og.plot_model() for mesh visualisation. "
+            "vfo/opsplt will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        try:
+            import vfo.vfo as _opsplt
+            return _opsplt
+        except ImportError:
+            raise ImportError(
+                "vfo is no longer a required dependency. "
+                "Install it with: pip install vfo"
+            ) from None
+    raise AttributeError(f"module 'ospgrillage' has no attribute {name!r}")

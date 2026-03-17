@@ -973,17 +973,7 @@ class BridgeAnalysisGUI(QMainWindow):
             plot_or_save = f"""model.create_osp_model(pyfile=True)"""
         else:
             plot_or_save = f"""model.create_osp_model(pyfile=False)
-og.opsv.plot_model(az_el=(-90, 0),element_labels=0, node_labels=0)
-fig = og.plt.gcf()
-fig.set_size_inches(8, 8)
-og.plt.show()
-
-# Detect plotly for interactive 3D plots
-try:
-    import plotly
-    _backend = "plotly"
-except ImportError:
-    _backend = "matplotlib"
+og.plot_model(model, figsize=(8, 8), show=True)
 """
 
         ##Define material(Preset or custom)

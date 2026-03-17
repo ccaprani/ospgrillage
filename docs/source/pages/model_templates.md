@@ -69,7 +69,7 @@ Table 1 outlines the specific variables for the beam link model.
 *Table 1: Input arguments for the beam link model.*
 
 ```{note}
-As of release 0.1.0, `OpenSeesPy` visualization module `vfo` and `opsvis` is unable to visualize the joint offsets.
+As of release 0.1.0, joint offsets are not shown in ``og.plot_model()`` visualisations.
 ```
 
 (shell-hybrid-model)=

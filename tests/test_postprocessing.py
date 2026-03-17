@@ -539,3 +539,53 @@ def test_plotly_kwargs(bridge_model_42_negative):
     assert fig.layout.title.text == "Custom Plotly BMD"
     assert fig.layout.width == 1200
     assert fig.layout.height == 800
+
+
+# ---------------------------------------------------------------------------
+# plot_model tests
+# ---------------------------------------------------------------------------
+def test_plot_model_matplotlib(bridge_model_42_negative):
+    """plot_model with matplotlib returns a Figure showing the mesh."""
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    fig = og.plot_model(bridge)
+    assert fig is not None
+    assert len(fig.axes) == 1
+    assert len(fig.axes[0].lines) > 0
+
+
+def test_plot_model_matplotlib_labels(bridge_model_42_negative):
+    """plot_model shows node/element labels when requested."""
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    fig = og.plot_model(bridge, show_node_labels=True, show_element_labels=True)
+    assert len(fig.axes[0].texts) > 0
+
+
+def test_plot_model_matplotlib_kwargs(bridge_model_42_negative):
+    """plot_model accepts figsize, title, ax kwargs."""
+    import matplotlib.pyplot as plt
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    fig = og.plot_model(bridge, figsize=(12, 6), title="Test Model")
+    w, h = fig.get_size_inches()
+    assert abs(w - 12) < 0.1
+    assert fig.axes[0].get_title() == "Test Model"
+
+
+def test_plot_model_plotly(bridge_model_42_negative):
+    """plot_model with plotly returns a plotly Figure."""
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    fig = og.plot_model(bridge, backend="plotly")
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+
+def test_plot_model_invalid_backend(bridge_model_42_negative):
+    """plot_model raises ValueError for unknown backend."""
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    with pytest.raises(ValueError, match="Unknown backend"):
+        og.plot_model(bridge, backend="vtk")

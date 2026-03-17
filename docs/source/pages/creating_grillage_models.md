@@ -240,13 +240,14 @@ Setting `pyfile=True` generates an executable `.py` file instead. This file cont
 
 ### Visualizing the grillage model
 
-To verify the model was created correctly, plot it using `OpenSeesPy`'s visualization module `opsvis`. *ospgrillage* re-exports this module as `og.opsv`, so you can call it directly:
+To verify the model was created correctly, plot it using *ospgrillage*'s built-in
+visualisation:
 
 ```python
-og.opsplt.plot_model(show_nodes="yes",show_nodetags="yes") # using Vfo module
-og.opsv.plot_model(az_el=(-90, 0)) # using osp_vis
+og.plot_model(simple_grid)                                   # matplotlib plan view
+og.plot_model(simple_grid, backend="plotly")                 # interactive 3D
+og.plot_model(simple_grid, show_node_labels=True, show_element_labels=True)  # with labels
 ```
 
-All nodes will be visualized, but only **assigned** members appear in the plot. This is a useful check to confirm every member group has been set before running analysis.
-
-For more details see the [opsvis documentation](https://openseespydoc.readthedocs.io/en/latest/src/ops_vis.html).
+Elements are colour-coded by member group so you can confirm every group has been
+assigned before running analysis.

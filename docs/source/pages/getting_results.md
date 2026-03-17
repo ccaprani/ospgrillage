@@ -208,29 +208,21 @@ properties and tags from the model.
 
 ## Plotting results
 
-### Current limitation of OpenSees visualization modules
+### Model visualisation
 
-`OpenSeesPy`'s visualization modules (`vfo` and `opsvis`) require the model to be
-active in the OpenSees model space. Results retrieved via `get_results()` are stored
-in an xarray Dataset and cannot be fed back to these modules for multi-load-case
-plotting. Additionally, neither module supports enveloping across multiple incremental
-load cases.
-
-For single-load-case inspection only, `opsvis` can be used directly after analysis:
+Use {func}`~ospgrillage.postprocessing.plot_model` to inspect the mesh geometry
+before or after analysis:
 
 ```python
-og.opsv.section_force_diagram_3d('Mz', {}, 1)
+og.plot_model(bridge_28)                                     # matplotlib plan view
+og.plot_model(bridge_28, backend="plotly")                   # interactive 3D
+og.plot_model(bridge_28, show_node_labels=True)              # with node tags
 ```
 
-```{note}
-`opsv` only works for model templates `beam_only` and `beam_link`. Shell model
-plotting is not supported as of *ospgrillage* version 0.1.0.
-```
+### Post-processing results
 
-### ospgrillage post-processing module
-
-For multi-load-case or moving load results, *ospgrillage* includes a dedicated
-post-processing module.
+*ospgrillage* includes a dedicated post-processing module for force diagrams,
+deflected shapes, and envelopes across multiple load cases.
 
 ```{note}
 The post-processing module supports force diagrams and deflected shapes for

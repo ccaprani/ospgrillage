@@ -9,6 +9,12 @@ Here is the summary change log for *ospgrillage*. Full details of commit logs ca
 -   Interactive Plotly backend for `plot_bmd()`, `plot_sfd()`, and `plot_def()` — pass `backend="plotly"` for 3D rotation, zoom, and hover. Install with `pip install ospgrillage[gui]`.
 -   Plotting keyword arguments for all plotting functions (`plot_force`, `plot_defo`, `plot_bmd`, `plot_sfd`, `plot_def`): `figsize`, `ax` (existing matplotlib Axes), `scale`, `title`, `color`, `fill`, `alpha`, and `show`. Plotly equivalents are forwarded through convenience wrappers.
 -   `LoadVertex` namedtuple replaces `LoadPoint` as the preferred name for load coordinate+magnitude tuples. `LoadPoint` is kept as a backwards-compatible alias.
+-   `plot_model()` function for visualising grillage mesh geometry with `backend="matplotlib"` (2-D plan view) and `backend="plotly"` (interactive 3-D). Replaces `og.opsv.plot_model()` and `og.opsplt.plot_model()`.
+
+**Dependencies**
+
+-   `vfo` is no longer a required dependency. Use `og.plot_model()` instead of `og.opsplt.plot_model()`.
+-   `og.opsv` and `og.opsplt` re-exports now emit `DeprecationWarning`.
 
 **API fixes**
 

@@ -488,8 +488,7 @@ class OspGrillage:
             file_handle.write("# Constructed on:{}\n".format(dt_string))
             # necessary imports
             file_handle.write(
-                "import numpy as np\nimport math\nimport openseespy.opensees as ops"
-                "\nimport vfo.vfo as opsplt\n"
+                "import numpy as np\nimport math\nimport openseespy.opensees as ops\n"
             )
 
     # interface function

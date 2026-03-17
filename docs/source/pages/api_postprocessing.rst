@@ -13,6 +13,7 @@ Factory functions
    ~ospgrillage.postprocessing.plot_bmd
    ~ospgrillage.postprocessing.plot_sfd
    ~ospgrillage.postprocessing.plot_def
+   ~ospgrillage.postprocessing.plot_model
 
 Class reference
 ---------------

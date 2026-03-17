@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING, Union
 from ospgrillage.load import ShapeFunction
 from ospgrillage.utils import solve_zeta_eta
 
-import vfo.vfo as opsplt
-
 __all__ = [
     "Envelope",
     "PostProcessor",
@@ -27,6 +25,7 @@ __all__ = [
     "plot_bmd",
     "plot_sfd",
     "plot_def",
+    "plot_model",
 ]
 
 
@@ -813,6 +812,275 @@ def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
         except (ValueError, KeyError, IndexError):
             pass
     return figs
+
+
+# ---------------------------------------------------------------------------
+# Model geometry plotting
+# ---------------------------------------------------------------------------
+
+# Colour palette for member groups (one per member type).
+_MEMBER_COLOURS = {
+    "edge_beam": "grey",
+    "exterior_main_beam_1": "blue",
+    "interior_main_beam": "green",
+    "exterior_main_beam_2": "blue",
+    "start_edge": "red",
+    "end_edge": "red",
+    "transverse_slab": "orange",
+}
+_DEFAULT_COLOUR = "black"
+
+
+def _extract_mesh_data(grillage_obj):
+    """Return element geometry grouped by member name.
+
+    Returns
+    -------
+    dict[str, list[tuple]]
+        ``{member_name: [(node_i_xyz, node_j_xyz, ele_tag), ...]}``
+    all_node_coords : dict[int, list]
+        ``{node_tag: [x, y, z]}``
+    """
+    mesh = grillage_obj.Mesh_obj
+    node_spec = mesh.node_spec
+    z_group_map = grillage_obj.common_grillage_element_z_group
+
+    data = {}  # member_name -> list of (coord_i, coord_j, ele_tag)
+    all_nodes = {}  # node_tag -> [x, y, z]
+
+    def _add_elements(member_name, ele_list):
+        entries = data.setdefault(member_name, [])
+        for ele in ele_list:
+            tag, ni, nj = ele[0], ele[1], ele[2]
+            ci = node_spec[ni]["coordinate"]
+            cj = node_spec[nj]["coordinate"]
+            entries.append((ci, cj, tag))
+            all_nodes[ni] = ci
+            all_nodes[nj] = cj
+
+    # Longitudinal members (edge_beam, exterior_main_beam_1, interior, exterior_2)
+    for member_name in ["edge_beam", "exterior_main_beam_1",
+                        "interior_main_beam", "exterior_main_beam_2"]:
+        if member_name not in z_group_map:
+            continue
+        for z_idx in z_group_map[member_name]:
+            if z_idx in mesh.z_group_to_ele:
+                _add_elements(member_name, mesh.z_group_to_ele[z_idx])
+
+    # Start / end edges
+    for member_name in ["start_edge", "end_edge"]:
+        if member_name not in z_group_map:
+            continue
+        for edge_idx in z_group_map[member_name]:
+            if edge_idx in mesh.edge_group_to_ele:
+                _add_elements(member_name, mesh.edge_group_to_ele[edge_idx])
+
+    # Transverse slab
+    _add_elements("transverse_slab", mesh.trans_ele)
+
+    return data, all_nodes
+
+
+def _plot_model_matplotlib(grillage_obj, *, figsize=None, ax=None,
+                           title=_AUTO, show_nodes=True,
+                           show_node_labels=False, show_element_labels=False,
+                           color_by_member=True, show=False):
+    """Render a 2-D plan view (x vs z) of the grillage mesh."""
+    data, all_nodes = _extract_mesh_data(grillage_obj)
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.get_figure()
+
+    # Draw elements grouped by member
+    for member_name, elements in data.items():
+        colour = _MEMBER_COLOURS.get(member_name, _DEFAULT_COLOUR) if color_by_member else "k"
+        for ci, cj, etag in elements:
+            ax.plot([ci[0], cj[0]], [ci[2], cj[2]], "-", color=colour, linewidth=1)
+            if show_element_labels:
+                mx = 0.5 * (ci[0] + cj[0])
+                mz = 0.5 * (ci[2] + cj[2])
+                ax.text(mx, mz, str(etag), fontsize=6, color="red",
+                        ha="center", va="center")
+
+    # Draw nodes
+    if show_nodes or show_node_labels:
+        for ntag, coord in all_nodes.items():
+            if show_nodes:
+                ax.plot(coord[0], coord[2], ".", color="k", markersize=3)
+            if show_node_labels:
+                ax.text(coord[0], coord[2], f" {ntag}", fontsize=5,
+                        color="blue", ha="left", va="bottom")
+
+    # Add legend (one entry per member group)
+    from matplotlib.lines import Line2D
+    handles = []
+    for member_name in data:
+        colour = _MEMBER_COLOURS.get(member_name, _DEFAULT_COLOUR) if color_by_member else "k"
+        handles.append(Line2D([0], [0], color=colour, linewidth=1, label=member_name))
+    if handles and color_by_member:
+        ax.legend(handles=handles, fontsize=7, loc="best")
+
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("z (m)")
+    ax.set_aspect("equal")
+
+    if title is _AUTO:
+        ax.set_title("Grillage Model")
+    elif title is not None:
+        ax.set_title(title)
+
+    fig.tight_layout()
+    if show:
+        fig.show()
+
+    return fig
+
+
+def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
+                       title=_AUTO, show_nodes=True,
+                       show_node_labels=False, show_element_labels=False,
+                       color_by_member=True, show=False):
+    """Render an interactive 3-D model view with Plotly."""
+    go = _import_plotly()
+    if fig is None:
+        fig = go.Figure()
+
+    data, all_nodes = _extract_mesh_data(grillage_obj)
+
+    colours = ["grey", "blue", "green", "blue", "red", "red", "orange"]
+    colour_map = dict(zip(_MEMBER_COLOURS.keys(), colours))
+
+    # Draw elements grouped by member
+    for member_name, elements in data.items():
+        colour = colour_map.get(member_name, "black") if color_by_member else "black"
+        xs, ys, zs = [], [], []
+        for ci, cj, etag in elements:
+            xs.extend([ci[0], cj[0], None])
+            ys.extend([ci[2], cj[2], None])
+            zs.extend([ci[1], cj[1], None])
+        fig.add_trace(go.Scatter3d(
+            x=xs, y=ys, z=zs,
+            mode="lines",
+            line=dict(color=colour, width=3),
+            name=member_name,
+        ))
+
+    # Node markers
+    if show_nodes:
+        ntags = list(all_nodes.keys())
+        nx = [all_nodes[n][0] for n in ntags]
+        ny = [all_nodes[n][2] for n in ntags]
+        nz = [all_nodes[n][1] for n in ntags]
+        text = [str(n) for n in ntags] if show_node_labels else None
+        mode = "markers+text" if show_node_labels else "markers"
+        fig.add_trace(go.Scatter3d(
+            x=nx, y=ny, z=nz,
+            mode=mode,
+            marker=dict(size=2, color="black"),
+            text=text,
+            textposition="top center",
+            textfont=dict(size=8),
+            name="nodes",
+            showlegend=False,
+        ))
+
+    # Element labels at midpoints
+    if show_element_labels:
+        ex, ey, ez, etexts = [], [], [], []
+        for member_name, elements in data.items():
+            for ci, cj, etag in elements:
+                ex.append(0.5 * (ci[0] + cj[0]))
+                ey.append(0.5 * (ci[2] + cj[2]))
+                ez.append(0.5 * (ci[1] + cj[1]))
+                etexts.append(str(etag))
+        fig.add_trace(go.Scatter3d(
+            x=ex, y=ey, z=ez,
+            mode="text",
+            text=etexts,
+            textfont=dict(size=7, color="red"),
+            showlegend=False,
+        ))
+
+    # Layout
+    layout_kw = dict(
+        scene=dict(
+            xaxis_title="x (m)",
+            yaxis_title="z (m)",
+            zaxis_title="y (m)",
+            aspectmode="data",
+        ),
+        legend_title="Member",
+    )
+    if title is _AUTO:
+        layout_kw["title"] = "Grillage Model"
+    elif title is not None:
+        layout_kw["title"] = title
+    if figsize is not None:
+        layout_kw["width"] = figsize[0] * 100
+        layout_kw["height"] = figsize[1] * 100
+
+    fig.update_layout(**layout_kw)
+
+    if show:
+        fig.show()
+
+    return fig
+
+
+def plot_model(grillage_obj, *, backend="matplotlib", **kwargs):
+    """Plot the grillage mesh geometry.
+
+    :param grillage_obj: Grillage model (must have been created with
+        :meth:`~ospgrillage.osp_grillage.OspGrillage.create_osp_model`).
+    :type grillage_obj: OspGrillage
+    :param backend: ``"matplotlib"`` (default, 2-D plan view) or
+        ``"plotly"`` (interactive 3-D).
+    :type backend: str
+    :param figsize: Figure size in inches ``(width, height)``.
+        Ignored when *ax* is provided.
+    :type figsize: tuple, optional
+    :param ax: Existing matplotlib Axes to plot on (matplotlib backend only).
+    :type ax: :class:`~matplotlib.axes.Axes`, optional
+    :param fig: Existing Plotly Figure to add traces to (plotly backend only).
+    :type fig: :class:`plotly.graph_objects.Figure`, optional
+    :param title: Plot title.  Default auto-generates ``"Grillage Model"``.
+        Pass a string to override, or ``None`` to suppress.
+    :type title: str or None
+    :param show_nodes: Show node markers.  Default ``True``.
+    :type show_nodes: bool
+    :param show_node_labels: Annotate node tags.  Default ``False``.
+    :type show_node_labels: bool
+    :param show_element_labels: Annotate element tags.  Default ``False``.
+    :type show_element_labels: bool
+    :param color_by_member: Colour elements by member group.  Default ``True``.
+    :type color_by_member: bool
+    :param show: If ``True``, call ``fig.show()`` before returning.
+    :type show: bool
+    :returns: Matplotlib or Plotly figure.
+    :rtype: :class:`~matplotlib.figure.Figure` or
+        :class:`plotly.graph_objects.Figure`
+    """
+    if backend == "plotly":
+        plotly_kw = {k: v for k, v in kwargs.items()
+                     if k in ("fig", "figsize", "title", "show_nodes",
+                              "show_node_labels", "show_element_labels",
+                              "color_by_member", "show")}
+        # Map ax → fig for consistency with other convenience wrappers
+        if "ax" in kwargs and "fig" not in plotly_kw:
+            plotly_kw["fig"] = kwargs["ax"]
+        return _plot_model_plotly(grillage_obj, **plotly_kw)
+    elif backend == "matplotlib":
+        mpl_kw = {k: v for k, v in kwargs.items()
+                  if k in ("figsize", "ax", "title", "show_nodes",
+                           "show_node_labels", "show_element_labels",
+                           "color_by_member", "show")}
+        return _plot_model_matplotlib(grillage_obj, **mpl_kw)
+    else:
+        raise ValueError(
+            f"Unknown backend: {backend!r}. Use 'matplotlib' or 'plotly'."
+        )
 
 
 class PostProcessor:

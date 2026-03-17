@@ -102,8 +102,7 @@ simple_grid.create_osp_model(
     pyfile=False
 )  # pyfile will not (False) be generated for further analysis (should be create_osp?)
 # og.opsplt.plot_model("nodes") # plotting using Get_rendering
-og.opsv.plot_model(element_labels=0, az_el=(-90, 0))  # plotting using ops_vis
-og.plt.show()
+og.plot_model(simple_grid)
 
 # reference unit load for various load types
 P = 1 * kN
