@@ -448,6 +448,12 @@ class Mesh:
             x_group_list = self.span_group_to_x_groups[span_group_key]
             x_group_list.append(x_count)
 
+            # Determine if this x position sits on an edge (start, end,
+            # or intermediate support).  Edge transverse elements are stored
+            # in edge_span_ele instead of trans_ele so that set_member() can
+            # assign separate section properties to start_edge / end_edge.
+            is_edge = (x_count == 0) or (x_inc in self.support_points)
+
             # create nodes and store in node spec
             for z_count, ref_point in enumerate(self.sweeping_nodes):
                 # offset x and y in all points in ref points
@@ -483,22 +489,31 @@ class Mesh:
                     # element list [element tag, node i, node j, x/z group]
                     if not self.beam_element_flag:
                         continue
-                    tag = self._get_geo_transform_tag(
-                        [assigned_node_tag[z_count - 1], assigned_node_tag[z_count]]
-                    )
-                    self.trans_ele.append(
-                        [
-                            self.element_counter,
+                    if is_edge:
+                        # Store in edge_span_ele so start_edge / end_edge
+                        # get their own member properties.
+                        self._assign_edge_trans_members(
                             assigned_node_tag[z_count - 1],
                             assigned_node_tag[z_count],
-                            x_count,
-                            tag,
-                        ]
-                    )
-                    self._store_ele_tag_respect_to_mesh_group(
-                        counter=self.element_counter, span_group=span_group_key
-                    )
-                    self.element_counter += 1
+                            self.global_edge_count,
+                        )
+                    else:
+                        tag = self._get_geo_transform_tag(
+                            [assigned_node_tag[z_count - 1], assigned_node_tag[z_count]]
+                        )
+                        self.trans_ele.append(
+                            [
+                                self.element_counter,
+                                assigned_node_tag[z_count - 1],
+                                assigned_node_tag[z_count],
+                                x_count,
+                                tag,
+                            ]
+                        )
+                        self._store_ele_tag_respect_to_mesh_group(
+                            counter=self.element_counter, span_group=span_group_key
+                        )
+                        self.element_counter += 1
 
             # create longitudinal ele by linking assigned nodes @ current step with assigned nodes from previous step
             if x_count == 0:

@@ -188,8 +188,6 @@ def test_plot_force(bridge_model_42_negative):
         loadcase="single_moving_point at global position [4.00,0.00,3.00]",
     )
 
-    f.show()
-
 
 def test_shell_plot_force(shell_link_bridge):
     # test functionality of plot_force on a shell_beam model type
@@ -215,8 +213,6 @@ def test_shell_plot_force(shell_link_bridge):
         component="Mx",
         member="exterior_main_beam_1",
     )
-
-    f.show()
 
 
 def test_displacement_getter(bridge_model_42_negative):
@@ -274,13 +270,13 @@ def test_plot_bmd(bridge_model_42_negative):
     results = example_bridge.get_results(local_forces=False)
 
     # single member
-    fig = og.plot_bmd(example_bridge, results, member="interior_main_beam")
-    assert fig is not None
+    ax = og.plot_bmd(example_bridge, results, member="interior_main_beam")
+    assert ax is not None
 
     # all main beams (returns list)
-    figs = og.plot_bmd(example_bridge, results)
-    assert isinstance(figs, list)
-    assert len(figs) >= 1
+    axes = og.plot_bmd(example_bridge, results)
+    assert isinstance(axes, list)
+    assert len(axes) >= 1
 
 
 def test_plot_sfd(bridge_model_42_negative):
@@ -297,12 +293,12 @@ def test_plot_sfd(bridge_model_42_negative):
     example_bridge.analyze()
     results = example_bridge.get_results(local_forces=False)
 
-    fig = og.plot_sfd(example_bridge, results, member="interior_main_beam")
-    assert fig is not None
+    ax = og.plot_sfd(example_bridge, results, member="interior_main_beam")
+    assert ax is not None
 
-    figs = og.plot_sfd(example_bridge, results)
-    assert isinstance(figs, list)
-    assert len(figs) >= 1
+    axes = og.plot_sfd(example_bridge, results)
+    assert isinstance(axes, list)
+    assert len(axes) >= 1
 
 
 def test_plot_def(bridge_model_42_negative):
@@ -319,12 +315,12 @@ def test_plot_def(bridge_model_42_negative):
     example_bridge.analyze()
     results = example_bridge.get_results(local_forces=False)
 
-    fig = og.plot_def(example_bridge, results, member="interior_main_beam")
-    assert fig is not None
+    ax = og.plot_def(example_bridge, results, member="interior_main_beam")
+    assert ax is not None
 
-    figs = og.plot_def(example_bridge, results)
-    assert isinstance(figs, list)
-    assert len(figs) >= 1
+    axes = og.plot_def(example_bridge, results)
+    assert isinstance(axes, list)
+    assert len(axes) >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -442,88 +438,88 @@ def _make_analyzed_bridge(bridge_model_42_negative):
 def test_plot_force_figsize(bridge_model_42_negative):
     """figsize is forwarded to plt.subplots."""
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
-    fig = og.plot_force(
+    ax = og.plot_force(
         bridge, results, component="Mz", member="interior_main_beam",
         figsize=(10, 4),
     )
-    w, h = fig.get_size_inches()
+    w, h = ax.get_figure().get_size_inches()
     assert abs(w - 10) < 0.1
     assert abs(h - 4) < 0.1
 
 
 def test_plot_force_ax(bridge_model_42_negative):
-    """Passing an existing Axes should reuse the figure."""
+    """Passing an existing Axes should reuse the axes."""
     import matplotlib.pyplot as plt
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
 
     fig_ext, ax_ext = plt.subplots(figsize=(12, 3))
-    returned_fig = og.plot_force(
+    returned_ax = og.plot_force(
         bridge, results, component="Mz", member="interior_main_beam",
         ax=ax_ext,
     )
-    assert returned_fig is fig_ext
+    assert returned_ax is ax_ext
 
 
 def test_plot_force_scale(bridge_model_42_negative):
     """scale=2.0 should double the plotted y-values."""
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
 
-    fig1 = og.plot_force(
+    ax1 = og.plot_force(
         bridge, results, component="Mz", member="interior_main_beam",
         scale=1.0,
     )
-    fig2 = og.plot_force(
+    ax2 = og.plot_force(
         bridge, results, component="Mz", member="interior_main_beam",
         scale=2.0,
     )
     # Compare the first line's y-data
     import numpy as np
-    y1 = fig1.axes[0].lines[0].get_ydata()
-    y2 = fig2.axes[0].lines[0].get_ydata()
+    y1 = ax1.lines[0].get_ydata()
+    y2 = ax2.lines[0].get_ydata()
     np.testing.assert_allclose(y2, y1 * 2, rtol=1e-10)
 
 
 def test_plot_force_styling(bridge_model_42_negative):
     """Smoke test: color, fill, alpha, title, show kwargs don't error."""
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
-    fig = og.plot_force(
+    ax = og.plot_force(
         bridge, results, component="Mz", member="interior_main_beam",
         color="r", fill=False, alpha=0.8, title="Custom Title", show=False,
     )
-    assert fig.axes[0].get_title() == "Custom Title"
+    assert ax.get_title() == "Custom Title"
     # fill=False means no PolyCollection (only lines)
-    assert len(fig.axes[0].collections) == 0
+    assert len(ax.collections) == 0
 
 
 def test_plot_force_title_none(bridge_model_42_negative):
     """title=None should suppress the title."""
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
-    fig = og.plot_force(
+    ax = og.plot_force(
         bridge, results, component="Mz", member="interior_main_beam",
         title=None,
     )
-    assert fig.axes[0].get_title() == ""
+    assert ax.get_title() == ""
 
 
 def test_plot_bmd_kwargs_passthrough(bridge_model_42_negative):
     """plot_bmd forwards kwargs to plot_force without error."""
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
-    fig = og.plot_bmd(
+    ax = og.plot_bmd(
         bridge, results, member="interior_main_beam",
         figsize=(12, 4), scale=0.001, title="BMD (kNm)",
     )
-    assert fig is not None
-    assert fig.axes[0].get_title() == "BMD (kNm)"
+    assert ax is not None
+    assert ax.get_title() == "BMD (kNm)"
 
 
 def test_plot_def_kwargs_passthrough(bridge_model_42_negative):
     """plot_def forwards kwargs to plot_defo without error."""
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
-    fig = og.plot_def(
+    ax = og.plot_def(
         bridge, results, member="interior_main_beam",
         figsize=(12, 4), scale=1000, color="g",
     )
-    assert fig is not None
+    assert ax is not None
 
 
 def test_plotly_kwargs(bridge_model_42_negative):
@@ -545,21 +541,20 @@ def test_plotly_kwargs(bridge_model_42_negative):
 # plot_model tests
 # ---------------------------------------------------------------------------
 def test_plot_model_matplotlib(bridge_model_42_negative):
-    """plot_model with matplotlib returns a Figure showing the mesh."""
+    """plot_model with matplotlib returns an Axes showing the mesh."""
     og.ops.wipeAnalysis()
     bridge = bridge_model_42_negative
-    fig = og.plot_model(bridge)
-    assert fig is not None
-    assert len(fig.axes) == 1
-    assert len(fig.axes[0].lines) > 0
+    ax = og.plot_model(bridge)
+    assert ax is not None
+    assert len(ax.lines) > 0
 
 
 def test_plot_model_matplotlib_labels(bridge_model_42_negative):
     """plot_model shows node/element labels when requested."""
     og.ops.wipeAnalysis()
     bridge = bridge_model_42_negative
-    fig = og.plot_model(bridge, show_node_labels=True, show_element_labels=True)
-    assert len(fig.axes[0].texts) > 0
+    ax = og.plot_model(bridge, show_node_labels=True, show_element_labels=True)
+    assert len(ax.texts) > 0
 
 
 def test_plot_model_matplotlib_kwargs(bridge_model_42_negative):
@@ -567,10 +562,10 @@ def test_plot_model_matplotlib_kwargs(bridge_model_42_negative):
     import matplotlib.pyplot as plt
     og.ops.wipeAnalysis()
     bridge = bridge_model_42_negative
-    fig = og.plot_model(bridge, figsize=(12, 6), title="Test Model")
-    w, h = fig.get_size_inches()
+    ax = og.plot_model(bridge, figsize=(12, 6), title="Test Model")
+    w, h = ax.get_figure().get_size_inches()
     assert abs(w - 12) < 0.1
-    assert fig.axes[0].get_title() == "Test Model"
+    assert ax.get_title() == "Test Model"
 
 
 def test_plot_model_plotly(bridge_model_42_negative):

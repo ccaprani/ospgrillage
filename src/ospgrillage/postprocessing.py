@@ -540,8 +540,8 @@ def plot_force(
     :type alpha: float
     :param show: If ``True``, call ``plt.show()`` before returning.
     :type show: bool
-    :returns: Matplotlib figure.
-    :rtype: :class:`~matplotlib.figure.Figure`
+    :returns: Matplotlib axes (use ``ax.get_figure()`` to obtain the figure).
+    :rtype: :class:`~matplotlib.axes.Axes`
     """
     if member is None:
         raise ValueError("Missing argument: member= is required")
@@ -573,7 +573,7 @@ def plot_force(
     if show:
         plt.show()
 
-    return fig
+    return ax
 
 
 def plot_defo(
@@ -624,8 +624,8 @@ def plot_defo(
     :type color: str
     :param show: If ``True``, call ``plt.show()`` before returning.
     :type show: bool
-    :returns: Matplotlib figure.
-    :rtype: :class:`~matplotlib.figure.Figure`
+    :returns: Matplotlib axes (use ``ax.get_figure()`` to obtain the figure).
+    :rtype: :class:`~matplotlib.axes.Axes`
     """
     if member is None:
         raise ValueError("Missing argument: member= is required")
@@ -654,7 +654,7 @@ def plot_defo(
     if show:
         plt.show()
 
-    return fig
+    return ax
 
 
 # ---------------------------------------------------------------------------
@@ -684,7 +684,7 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
         :func:`plot_force` (matplotlib) or the Plotly builder for accepted
         keyword arguments such as *figsize*, *ax*, *scale*, *title*,
         *color*, *fill*, *alpha*, and *show*.
-    :returns: Single figure when *member* is given, else list of figures.
+    :returns: Single axes when *member* is given, else list of axes.
         For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
@@ -732,7 +732,7 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
     :param \\**kwargs: Forwarded to the underlying renderer.  See
         :func:`plot_force` for accepted keyword arguments.
-    :returns: Single figure when *member* is given, else list of figures.
+    :returns: Single axes when *member* is given, else list of axes.
         For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
@@ -780,7 +780,7 @@ def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
     :param \\**kwargs: Forwarded to the underlying renderer.  See
         :func:`plot_defo` for accepted keyword arguments.
-    :returns: Single figure when *member* is given, else list of figures.
+    :returns: Single axes when *member* is given, else list of axes.
         For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
@@ -935,7 +935,7 @@ def _plot_model_matplotlib(grillage_obj, *, figsize=None, ax=None,
     if show:
         plt.show()
 
-    return fig
+    return ax
 
 
 def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
@@ -1058,8 +1058,9 @@ def plot_model(grillage_obj, *, backend="matplotlib", **kwargs):
     :type color_by_member: bool
     :param show: If ``True``, call ``plt.show()`` before returning.
     :type show: bool
-    :returns: Matplotlib or Plotly figure.
-    :rtype: :class:`~matplotlib.figure.Figure` or
+    :returns: Matplotlib axes (use ``ax.get_figure()`` for the figure) or
+        Plotly figure.
+    :rtype: :class:`~matplotlib.axes.Axes` or
         :class:`plotly.graph_objects.Figure`
     """
     if backend == "plotly":

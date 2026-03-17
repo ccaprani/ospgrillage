@@ -456,16 +456,18 @@ def test_member_reassignment_feature(ref_bridge_properties):
 
         return elem_id, nodes, section_vals, transf_tag, mass
 
-    # Expected values
+    # Expected values — edge transverse element now correctly gets
+    # start_edge section properties (unit_width with edge_ele_width=0.5)
+    # instead of being treated as transverse_slab.
     expected_elem_id = 2
     expected_nodes = [2, 3]
     expected_section_vals = [
-        9.963e-02,
+        2.214e-02,
         3.480e10,
         1.450e10,
-        5.850e-04,
-        2.475e-04,
-        5.445e-04,
+        1.300e-04,
+        5.500e-05,
+        1.210e-04,
     ]
     expected_transf_tag = 1
     expected_mass = 106272.0

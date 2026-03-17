@@ -1120,12 +1120,15 @@ def test_load_analysis_on_spring_support_single_span(ref_bridge_properties):
     result = variant_one_model.get_results()
     print(result)
 
+    # Reference value updated: oblique mesh edge transverse elements are now
+    # correctly classified as start_edge/end_edge instead of transverse_slab,
+    # giving them proper edge section properties.
     ref_value = result.forces.sel(
         Loadcase="pointload", Component="Mz_i", Element=20
     ).to_numpy()
     assert og.np.isclose(
         ref_value.tolist(),
-        0.49505451544913914,
+        -0.03730929768810762,
     )
 
 
