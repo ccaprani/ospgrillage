@@ -836,10 +836,13 @@ def _extract_mesh_data(grillage_obj):
 
     Returns
     -------
-    dict[str, list[tuple]]
+    data : dict[str, list[tuple]]
         ``{member_name: [(node_i_xyz, node_j_xyz, ele_tag), ...]}``
-    all_node_coords : dict[int, list]
+    all_nodes : dict[int, list]
         ``{node_tag: [x, y, z]}``
+    quads : list[tuple]
+        ``[(c1, c2, c3, c4), ...]`` where each ``ci`` is ``[x, y, z]``.
+        Non-empty only for shell-type meshes.
     """
     mesh = grillage_obj.Mesh_obj
     node_spec = mesh.node_spec
@@ -878,7 +881,20 @@ def _extract_mesh_data(grillage_obj):
     # Transverse slab
     _add_elements("transverse_slab", mesh.trans_ele)
 
-    return data, all_nodes
+    # Shell quad elements (only present for ShellLinkMesh)
+    quads = []
+    if hasattr(grillage_obj, "shell_element_command_list"):
+        grid = getattr(mesh, "grid_number_dict", {})
+        for node_list in grid.values():
+            # Each entry is [n1, n2, n3, n4] (may contain [] for degenerate grids)
+            valid = [n for n in node_list if isinstance(n, (int, float))]
+            if len(valid) >= 3:
+                coords = [node_spec[n]["coordinate"] for n in valid]
+                quads.append(tuple(coords))
+                for n in valid:
+                    all_nodes[n] = node_spec[n]["coordinate"]
+
+    return data, all_nodes, quads
 
 
 def _plot_model_matplotlib(grillage_obj, *, figsize=None, ax=None,
@@ -886,14 +902,27 @@ def _plot_model_matplotlib(grillage_obj, *, figsize=None, ax=None,
                            show_node_labels=False, show_element_labels=False,
                            color_by_member=True, show=False):
     """Render a 2-D plan view (x vs z) of the grillage mesh."""
-    data, all_nodes = _extract_mesh_data(grillage_obj)
+    data, all_nodes, quads = _extract_mesh_data(grillage_obj)
 
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.get_figure()
 
-    # Draw elements grouped by member
+    # Draw shell quad patches (if shell model)
+    if quads:
+        from matplotlib.patches import Polygon
+        from matplotlib.collections import PatchCollection
+        patches = []
+        for coords in quads:
+            # coords is tuple of [x,y,z] lists — plot in x-z plane
+            verts = [(c[0], c[2]) for c in coords]
+            patches.append(Polygon(verts, closed=True))
+        pc = PatchCollection(patches, facecolor="lightblue", edgecolor="steelblue",
+                             linewidth=0.4, alpha=0.5)
+        ax.add_collection(pc)
+
+    # Draw beam elements grouped by member
     for member_name, elements in data.items():
         colour = _MEMBER_COLOURS.get(member_name, _DEFAULT_COLOUR) if color_by_member else "k"
         for ci, cj, etag in elements:
@@ -916,6 +945,10 @@ def _plot_model_matplotlib(grillage_obj, *, figsize=None, ax=None,
     # Add legend (one entry per member group)
     from matplotlib.lines import Line2D
     handles = []
+    if quads:
+        handles.append(Line2D([0], [0], color="steelblue", linewidth=1,
+                              marker="s", markerfacecolor="lightblue",
+                              markersize=6, label="shell_slab"))
     for member_name in data:
         colour = _MEMBER_COLOURS.get(member_name, _DEFAULT_COLOUR) if color_by_member else "k"
         handles.append(Line2D([0], [0], color=colour, linewidth=1, label=member_name))
@@ -947,7 +980,7 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
     if fig is None:
         fig = go.Figure()
 
-    data, all_nodes = _extract_mesh_data(grillage_obj)
+    data, all_nodes, quads = _extract_mesh_data(grillage_obj)
 
     colours = ["grey", "blue", "green", "blue", "red", "red", "orange"]
     colour_map = dict(zip(_MEMBER_COLOURS.keys(), colours))
@@ -965,6 +998,34 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
             mode="lines",
             line=dict(color=colour, width=3),
             name=member_name,
+        ))
+
+    # Shell quad surface (if shell model)
+    if quads:
+        # Build a flat vertex list and triangle indices (each quad → 2 triangles)
+        vx, vy, vz = [], [], []
+        i_idx, j_idx, k_idx = [], [], []
+        base = 0
+        for coords in quads:
+            for c in coords:
+                vx.append(c[0])
+                vy.append(c[2])  # z → plotly y
+                vz.append(c[1])  # y → plotly z
+            n = len(coords)
+            if n == 4:
+                i_idx.extend([base, base])
+                j_idx.extend([base + 1, base + 2])
+                k_idx.extend([base + 2, base + 3])
+            elif n == 3:
+                i_idx.append(base)
+                j_idx.append(base + 1)
+                k_idx.append(base + 2)
+            base += n
+        fig.add_trace(go.Mesh3d(
+            x=vx, y=vy, z=vz,
+            i=i_idx, j=j_idx, k=k_idx,
+            color="lightblue", opacity=0.5,
+            name="shell_slab",
         ))
 
     # Node markers
