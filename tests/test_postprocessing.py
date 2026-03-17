@@ -573,7 +573,7 @@ def test_plot_model_plotly(bridge_model_42_negative):
     go = pytest.importorskip("plotly.graph_objects")
     og.ops.wipeAnalysis()
     bridge = bridge_model_42_negative
-    fig = og.plot_model(bridge, backend="plotly")
+    fig = og.plot_model(bridge, backend="plotly", show=False)
     assert isinstance(fig, go.Figure)
     assert len(fig.data) > 0
 

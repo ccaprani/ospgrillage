@@ -1090,21 +1090,24 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
             showlegend=False,
         ))
 
-    # Layout — scale the y (depth) axis for shell models so the offset is visible
+    # Layout — for shell models, boost the depth axis so the beam offset is visible
     if links:
-        # Compute a reasonable z-axis (depth/y) scale factor
-        all_y = [c[1] for c in all_nodes.values()]
-        y_range = max(all_y) - min(all_y) if all_y else 0
         all_x = [c[0] for c in all_nodes.values()]
-        x_range = max(all_x) - min(all_x) if all_x else 1
-        # Scale depth to ~15% of span length for visibility
-        z_scale = max(0.15 * x_range / y_range, 1) if y_range > 0 else 1
+        all_z = [c[2] for c in all_nodes.values()]
+        all_y = [c[1] for c in all_nodes.values()]
+        x_range = (max(all_x) - min(all_x)) or 1
+        z_range = (max(all_z) - min(all_z)) or 1
+        y_range = (max(all_y) - min(all_y)) or 1
+        # Boost depth to ~15% of span so offset beams are clearly visible
+        depth_boost = max(0.15 * x_range / y_range, 1)
         scene_kw = dict(
             xaxis_title="x (m)",
             yaxis_title="z (m)",
             zaxis_title="y (m)",
             aspectmode="manual",
-            aspectratio=dict(x=1, y=1, z=z_scale),
+            aspectratio=dict(
+                x=x_range, y=z_range, z=y_range * depth_boost,
+            ),
         )
     else:
         scene_kw = dict(
@@ -1161,18 +1164,22 @@ def plot_model(grillage_obj, *, backend="matplotlib", **kwargs):
     :type show_element_labels: bool
     :param color_by_member: Colour elements by member group.  Default ``True``.
     :type color_by_member: bool
-    :param show: If ``True``, call ``plt.show()`` before returning.
+    :param show: If ``True``, display the plot immediately.
+        Defaults to ``True`` for plotly, ``False`` for matplotlib
+        (matplotlib inline backends auto-display).
     :type show: bool
     :returns: Matplotlib axes (use ``ax.get_figure()`` for the figure) or
-        Plotly figure.
+        Plotly figure (``None`` when ``show=True``).
     :rtype: :class:`~matplotlib.axes.Axes` or
-        :class:`plotly.graph_objects.Figure`
+        :class:`plotly.graph_objects.Figure` or None
     """
     if backend == "plotly":
         plotly_kw = {k: v for k, v in kwargs.items()
                      if k in ("fig", "figsize", "title", "show_nodes",
                               "show_node_labels", "show_element_labels",
                               "color_by_member", "show")}
+        # Default show=True for plotly (Jupyter doesn't always auto-render)
+        plotly_kw.setdefault("show", True)
         # Map ax → fig for consistency with other convenience wrappers
         if "ax" in kwargs and "fig" not in plotly_kw:
             plotly_kw["fig"] = kwargs["ax"]
