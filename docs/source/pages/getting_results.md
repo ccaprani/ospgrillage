@@ -324,3 +324,12 @@ Each returns a single [Plotly](https://plotly.com/python/) `Figure` that
 renders interactively in Jupyter notebooks and in browser windows from the
 terminal.  The figure can be further customised using the standard Plotly
 API.  The GUI auto-detects plotly and uses it by default when available.
+
+## Worked examples
+
+For complete worked examples, see:
+
+- {doc}`Super-T bridge tutorial <../notebooks/super_t_analysis_workflow>` — end-to-end
+  model creation, loading, analysis, and results extraction.
+- {doc}`Advanced results processing <../notebooks/advanced_results>` — xarray selection,
+  load combinations, envelopes, and custom post-processing.
