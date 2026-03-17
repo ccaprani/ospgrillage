@@ -194,8 +194,21 @@ _FORCE_COMPONENTS = [
 # ---------------------------------------------------------------------------
 # Data extraction helpers (backend-agnostic)
 # ---------------------------------------------------------------------------
+def _num_z_groups(ospgrillage_obj, member):
+    """Return the number of z-groups for a member.
+
+    Longitudinal members like ``"interior_main_beam"`` may contain several
+    parallel beams.  Each is a separate z-group.  Transverse and edge
+    member types always return 1.
+    """
+    z_grp = ospgrillage_obj.common_grillage_element_z_group.get(member)
+    if z_grp is None:
+        return 1
+    return len(z_grp)
+
+
 def _extract_force_data(ospgrillage_obj, result_obj, component, member,
-                        loadcase=None, option="elements"):
+                        loadcase=None, option="elements", z_group_num=0):
     """Extract force distribution data for a single member.
 
     Iterates over every element in the requested *member* group, calls
@@ -220,7 +233,9 @@ def _extract_force_data(ospgrillage_obj, result_obj, component, member,
     factor = _FORCE_COMP_FACTOR[component] if isinstance(component, str) else 1
 
     nodes = ospgrillage_obj.get_nodes()
-    eletag = ospgrillage_obj.get_element(member=member, options=option)
+    eletag = ospgrillage_obj.get_element(
+        member=member, options=option, z_group_num=z_group_num,
+    )
 
     if ospgrillage_obj.model_type == "shell_beam":
         force_result = result_obj.forces_beam
@@ -267,7 +282,7 @@ def _extract_force_data(ospgrillage_obj, result_obj, component, member,
 
 
 def _extract_defo_data(ospgrillage_obj, result_obj, member, component="y",
-                       loadcase=None, option="nodes"):
+                       loadcase=None, option="nodes", z_group_num=0):
     """Extract displacement data for a single member.
 
     Iterates over the nodes belonging to *member* and collects their
@@ -290,7 +305,9 @@ def _extract_defo_data(ospgrillage_obj, result_obj, member, component="y",
     dis_comp = component if component is not None else "y"
 
     nodes = ospgrillage_obj.get_nodes()
-    nodes_to_plot = ospgrillage_obj.get_element(member=member, options=plot_option)[0]
+    nodes_to_plot = ospgrillage_obj.get_element(
+        member=member, options=plot_option, z_group_num=z_group_num,
+    )[0]
 
     xx_list, zz_list, values_list = [], [], []
 
@@ -348,50 +365,61 @@ def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
         fig = go.Figure()
     label = comp_label or component
 
-    colours = ["black", "blue", "red", "green", "orange"]
+    # Negate z-axis so that sagging BM and downward shear plot below
+    # the baseline (structural engineering convention).
+    sign = -1.0
 
-    for idx, member in enumerate(members):
-        all_xx, all_zz, all_vals = _extract_force_data(
-            ospgrillage_obj, result_obj, component, member, loadcase,
-        )
-        colour = colours[idx % len(colours)]
+    colours = ["black", "blue", "red", "green", "orange", "purple",
+               "brown", "grey"]
+    trace_idx = 0
 
-        for ex, ez, ev in zip(all_xx, all_zz, all_vals):
-            sv = ev * scale
-            # Force diagram line
-            fig.add_trace(go.Scatter3d(
-                x=ex, y=ez, z=sv,
-                mode="lines",
-                line=dict(color=colour, width=4),
-                opacity=alpha,
-                name=member,
-                showlegend=False,
-            ))
-            # Baseline (zero) line
-            fig.add_trace(go.Scatter3d(
-                x=ex, y=ez, z=np.zeros_like(sv),
-                mode="lines",
-                line=dict(color=colour, width=1, dash="dot"),
-                opacity=alpha,
-                showlegend=False,
-            ))
-            # Vertical drop-lines connecting diagram to baseline
-            for xi, zi, vi in zip(ex, ez, sv):
+    for member in members:
+        n_groups = _num_z_groups(ospgrillage_obj, member)
+        for zg in range(n_groups):
+            all_xx, all_zz, all_vals = _extract_force_data(
+                ospgrillage_obj, result_obj, component, member, loadcase,
+                z_group_num=zg,
+            )
+            colour = colours[trace_idx % len(colours)]
+            trace_name = member if n_groups == 1 else f"{member} [{zg+1}]"
+
+            for ex, ez, ev in zip(all_xx, all_zz, all_vals):
+                sv = ev * scale * sign
+                # Force diagram line
                 fig.add_trace(go.Scatter3d(
-                    x=[xi, xi], y=[zi, zi], z=[0, vi],
+                    x=ex, y=ez, z=sv,
                     mode="lines",
-                    line=dict(color=colour, width=1),
+                    line=dict(color=colour, width=4),
+                    opacity=alpha,
+                    name=trace_name,
+                    showlegend=False,
+                ))
+                # Baseline (zero) line
+                fig.add_trace(go.Scatter3d(
+                    x=ex, y=ez, z=np.zeros_like(sv),
+                    mode="lines",
+                    line=dict(color=colour, width=1, dash="dot"),
                     opacity=alpha,
                     showlegend=False,
                 ))
+                # Vertical drop-lines connecting diagram to baseline
+                for xi, zi, vi in zip(ex, ez, sv):
+                    fig.add_trace(go.Scatter3d(
+                        x=[xi, xi], y=[zi, zi], z=[0, vi],
+                        mode="lines",
+                        line=dict(color=colour, width=1),
+                        opacity=alpha,
+                        showlegend=False,
+                    ))
 
-        # One legend entry per member
-        fig.add_trace(go.Scatter3d(
-            x=[None], y=[None], z=[None],
-            mode="lines",
-            line=dict(color=colour, width=4),
-            name=member,
-        ))
+            # One legend entry per beam
+            fig.add_trace(go.Scatter3d(
+                x=[None], y=[None], z=[None],
+                mode="lines",
+                line=dict(color=colour, width=4),
+                name=trace_name,
+            ))
+            trace_idx += 1
 
     layout_kw = dict(
         scene=dict(
@@ -438,29 +466,39 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
     if fig is None:
         fig = go.Figure()
 
-    colours = ["blue", "red", "green", "orange", "black"]
+    # Negate so downward deflection plots below the baseline.
+    sign = -1.0
 
-    for idx, member in enumerate(members):
-        xx, zz, vals = _extract_defo_data(
-            ospgrillage_obj, result_obj, member, component, loadcase,
-        )
-        colour = colours[idx % len(colours)]
-        sv = np.array(vals) * scale
+    colours = ["blue", "red", "green", "orange", "black", "purple",
+               "brown", "grey"]
+    trace_idx = 0
 
-        fig.add_trace(go.Scatter3d(
-            x=xx, y=zz, z=sv.tolist(),
-            mode="lines+markers",
-            line=dict(color=colour, width=4),
-            marker=dict(size=3, color=colour),
-            name=member,
-        ))
-        # Baseline
-        fig.add_trace(go.Scatter3d(
-            x=xx, y=zz, z=[0.0] * len(vals),
-            mode="lines",
-            line=dict(color=colour, width=1, dash="dot"),
-            showlegend=False,
-        ))
+    for member in members:
+        n_groups = _num_z_groups(ospgrillage_obj, member)
+        for zg in range(n_groups):
+            xx, zz, vals = _extract_defo_data(
+                ospgrillage_obj, result_obj, member, component, loadcase,
+                z_group_num=zg,
+            )
+            colour = colours[trace_idx % len(colours)]
+            trace_name = member if n_groups == 1 else f"{member} [{zg+1}]"
+            sv = np.array(vals) * scale * sign
+
+            fig.add_trace(go.Scatter3d(
+                x=xx, y=zz, z=sv.tolist(),
+                mode="lines+markers",
+                line=dict(color=colour, width=4),
+                marker=dict(size=3, color=colour),
+                name=trace_name,
+            ))
+            # Baseline
+            fig.add_trace(go.Scatter3d(
+                x=xx, y=zz, z=[0.0] * len(vals),
+                mode="lines",
+                line=dict(color=colour, width=1, dash="dot"),
+                showlegend=False,
+            ))
+            trace_idx += 1
 
     layout_kw = dict(
         scene=dict(
