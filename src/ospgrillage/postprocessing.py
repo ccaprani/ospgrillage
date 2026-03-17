@@ -881,8 +881,9 @@ def _extract_mesh_data(grillage_obj):
     # Transverse slab
     _add_elements("transverse_slab", mesh.trans_ele)
 
-    # Shell quad elements (only present for ShellLinkMesh)
+    # Shell quad elements and rigid links (only present for ShellLinkMesh)
     quads = []
+    links = []  # list of (slab_coord, beam_coord) pairs
     if hasattr(grillage_obj, "shell_element_command_list"):
         grid = getattr(mesh, "grid_number_dict", {})
         for node_list in grid.values():
@@ -894,7 +895,17 @@ def _extract_mesh_data(grillage_obj):
                 for n in valid:
                     all_nodes[n] = node_spec[n]["coordinate"]
 
-    return data, all_nodes, quads
+        # Rigid links: link_dict maps offset beam node → [slab_node1, slab_node2]
+        link_dict = getattr(mesh, "link_dict", {})
+        for beam_node, slab_nodes in link_dict.items():
+            bc = node_spec[beam_node]["coordinate"]
+            all_nodes[beam_node] = bc
+            for sn in slab_nodes:
+                sc = node_spec[sn]["coordinate"]
+                links.append((sc, bc))
+                all_nodes[sn] = sc
+
+    return data, all_nodes, quads, links
 
 
 def _plot_model_matplotlib(grillage_obj, *, figsize=None, ax=None,
@@ -902,7 +913,7 @@ def _plot_model_matplotlib(grillage_obj, *, figsize=None, ax=None,
                            show_node_labels=False, show_element_labels=False,
                            color_by_member=True, show=False):
     """Render a 2-D plan view (x vs z) of the grillage mesh."""
-    data, all_nodes, quads = _extract_mesh_data(grillage_obj)
+    data, all_nodes, quads, links = _extract_mesh_data(grillage_obj)
 
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -980,7 +991,7 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
     if fig is None:
         fig = go.Figure()
 
-    data, all_nodes, quads = _extract_mesh_data(grillage_obj)
+    data, all_nodes, quads, links = _extract_mesh_data(grillage_obj)
 
     colours = ["grey", "blue", "green", "blue", "red", "red", "orange"]
     colour_map = dict(zip(_MEMBER_COLOURS.keys(), colours))
@@ -1028,6 +1039,21 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
             name="shell_slab",
         ))
 
+    # Rigid links (slab ↔ offset beam)
+    if links:
+        lx, ly, lz = [], [], []
+        for sc, bc in links:
+            lx.extend([sc[0], bc[0], None])
+            ly.extend([sc[2], bc[2], None])  # z → plotly y
+            lz.extend([sc[1], bc[1], None])  # y → plotly z
+        fig.add_trace(go.Scatter3d(
+            x=lx, y=ly, z=lz,
+            mode="lines",
+            line=dict(color="grey", width=1, dash="dot"),
+            name="rigid_link",
+            showlegend=True,
+        ))
+
     # Node markers
     if show_nodes:
         ntags = list(all_nodes.keys())
@@ -1064,14 +1090,31 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
             showlegend=False,
         ))
 
-    # Layout
-    layout_kw = dict(
-        scene=dict(
+    # Layout — scale the y (depth) axis for shell models so the offset is visible
+    if links:
+        # Compute a reasonable z-axis (depth/y) scale factor
+        all_y = [c[1] for c in all_nodes.values()]
+        y_range = max(all_y) - min(all_y) if all_y else 0
+        all_x = [c[0] for c in all_nodes.values()]
+        x_range = max(all_x) - min(all_x) if all_x else 1
+        # Scale depth to ~15% of span length for visibility
+        z_scale = max(0.15 * x_range / y_range, 1) if y_range > 0 else 1
+        scene_kw = dict(
+            xaxis_title="x (m)",
+            yaxis_title="z (m)",
+            zaxis_title="y (m)",
+            aspectmode="manual",
+            aspectratio=dict(x=1, y=1, z=z_scale),
+        )
+    else:
+        scene_kw = dict(
             xaxis_title="x (m)",
             yaxis_title="z (m)",
             zaxis_title="y (m)",
             aspectmode="data",
-        ),
+        )
+    layout_kw = dict(
+        scene=scene_kw,
         legend_title="Member",
     )
     if title is _AUTO:
