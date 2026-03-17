@@ -689,14 +689,19 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
     if backend == "plotly":
+        show = kwargs.pop("show", True)
         plotly_kw = {k: v for k, v in kwargs.items()
                      if k in ("figsize", "scale", "title", "alpha")}
         plotly_kw["fig"] = kwargs.get("ax", None)
-        return _plotly_3d_force(
+        fig = _plotly_3d_force(
             ospgrillage_obj, result_obj, component="Mz",
             members=members, loadcase=loadcase, comp_label="Mz",
             **plotly_kw,
         )
+        if show:
+            fig.show()
+            return None
+        return fig
     # matplotlib path
     if member is not None:
         return plot_force(
@@ -737,14 +742,19 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
     if backend == "plotly":
+        show = kwargs.pop("show", True)
         plotly_kw = {k: v for k, v in kwargs.items()
                      if k in ("figsize", "scale", "title", "alpha")}
         plotly_kw["fig"] = kwargs.get("ax", None)
-        return _plotly_3d_force(
+        fig = _plotly_3d_force(
             ospgrillage_obj, result_obj, component="Fy",
             members=members, loadcase=loadcase, comp_label="Fy",
             **plotly_kw,
         )
+        if show:
+            fig.show()
+            return None
+        return fig
     # matplotlib path
     if member is not None:
         return plot_force(
@@ -785,13 +795,18 @@ def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     """
     members = [member] if member else _MAIN_BEAM_MEMBERS
     if backend == "plotly":
+        show = kwargs.pop("show", True)
         plotly_kw = {k: v for k, v in kwargs.items()
                      if k in ("figsize", "scale", "title")}
         plotly_kw["fig"] = kwargs.get("ax", None)
-        return _plotly_3d_defo(
+        fig = _plotly_3d_defo(
             ospgrillage_obj, result_obj, members=members,
             component="y", loadcase=loadcase, **plotly_kw,
         )
+        if show:
+            fig.show()
+            return None
+        return fig
     # matplotlib path — filter to defo-compatible kwargs (no fill/alpha)
     defo_kw = {k: v for k, v in kwargs.items()
                if k in ("figsize", "ax", "scale", "title", "color", "show")}

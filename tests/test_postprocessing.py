@@ -341,7 +341,7 @@ def test_plot_bmd_plotly(bridge_model_42_negative):
     example_bridge.analyze()
     results = example_bridge.get_results(local_forces=False)
 
-    fig = og.plot_bmd(example_bridge, results, backend="plotly")
+    fig = og.plot_bmd(example_bridge, results, backend="plotly", show=False)
     assert isinstance(fig, go.Figure)
     assert len(fig.data) > 0  # has traces
 
@@ -361,7 +361,7 @@ def test_plot_sfd_plotly(bridge_model_42_negative):
     example_bridge.analyze()
     results = example_bridge.get_results(local_forces=False)
 
-    fig = og.plot_sfd(example_bridge, results, backend="plotly")
+    fig = og.plot_sfd(example_bridge, results, backend="plotly", show=False)
     assert isinstance(fig, go.Figure)
     assert len(fig.data) > 0
 
@@ -381,7 +381,7 @@ def test_plot_def_plotly(bridge_model_42_negative):
     example_bridge.analyze()
     results = example_bridge.get_results(local_forces=False)
 
-    fig = og.plot_def(example_bridge, results, backend="plotly")
+    fig = og.plot_def(example_bridge, results, backend="plotly", show=False)
     assert isinstance(fig, go.Figure)
     assert len(fig.data) > 0
 
@@ -402,7 +402,8 @@ def test_plotly_single_member(bridge_model_42_negative):
     results = example_bridge.get_results(local_forces=False)
 
     fig = og.plot_bmd(
-        example_bridge, results, member="interior_main_beam", backend="plotly"
+        example_bridge, results, member="interior_main_beam",
+        backend="plotly", show=False,
     )
     assert isinstance(fig, go.Figure)
 
@@ -528,7 +529,7 @@ def test_plotly_kwargs(bridge_model_42_negative):
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
 
     fig = og.plot_bmd(
-        bridge, results, backend="plotly",
+        bridge, results, backend="plotly", show=False,
         figsize=(12, 8), scale=0.5, title="Custom Plotly BMD",
     )
     assert isinstance(fig, go.Figure)
