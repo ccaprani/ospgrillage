@@ -2683,8 +2683,7 @@ class Analysis:
                 fh.write("# Constructed on:{}\n".format(dt_string))
                 # write imports
                 fh.write(
-                    "import numpy as np\nimport math\nimport openseespy.opensees as ops"
-                    "\nimport vfo.vfo as opsplt\n"
+                    "import numpy as np\nimport math\nimport openseespy.opensees as ops\n"
                 )
 
         # Proxy handles dual-mode dispatch for analysis commands
