@@ -1003,7 +1003,7 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
         for ci, cj, etag in elements:
             xs.extend([ci[0], cj[0], None])
             ys.extend([ci[2], cj[2], None])
-            zs.extend([ci[1], cj[1], None])
+            zs.extend([-ci[1], -cj[1], None])
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode="lines",
@@ -1021,7 +1021,7 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
             for c in coords:
                 vx.append(c[0])
                 vy.append(c[2])  # z → plotly y
-                vz.append(c[1])  # y → plotly z
+                vz.append(-c[1])  # y → plotly z (negated: beams below slab)
             n = len(coords)
             if n == 4:
                 i_idx.extend([base, base])
@@ -1045,11 +1045,11 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
         for sc, bc in links:
             lx.extend([sc[0], bc[0], None])
             ly.extend([sc[2], bc[2], None])  # z → plotly y
-            lz.extend([sc[1], bc[1], None])  # y → plotly z
+            lz.extend([-sc[1], -bc[1], None])  # y → plotly z (negated)
         fig.add_trace(go.Scatter3d(
             x=lx, y=ly, z=lz,
             mode="lines",
-            line=dict(color="grey", width=1, dash="dot"),
+            line=dict(color="grey", width=1),
             name="rigid_link",
             showlegend=True,
         ))
@@ -1059,7 +1059,7 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
         ntags = list(all_nodes.keys())
         nx = [all_nodes[n][0] for n in ntags]
         ny = [all_nodes[n][2] for n in ntags]
-        nz = [all_nodes[n][1] for n in ntags]
+        nz = [-all_nodes[n][1] for n in ntags]
         text = [str(n) for n in ntags] if show_node_labels else None
         mode = "markers+text" if show_node_labels else "markers"
         fig.add_trace(go.Scatter3d(
@@ -1080,7 +1080,7 @@ def _plot_model_plotly(grillage_obj, *, fig=None, figsize=None,
             for ci, cj, etag in elements:
                 ex.append(0.5 * (ci[0] + cj[0]))
                 ey.append(0.5 * (ci[2] + cj[2]))
-                ez.append(0.5 * (ci[1] + cj[1]))
+                ez.append(-0.5 * (ci[1] + cj[1]))
                 etexts.append(str(etag))
         fig.add_trace(go.Scatter3d(
             x=ex, y=ey, z=ez,
