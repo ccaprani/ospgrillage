@@ -256,7 +256,7 @@ og.plot_force(bridge_28, results, member="exterior_main_beam_2", component="Mz")
 ### Convenience plotting functions
 
 For the most common diagrams, convenience wrappers are provided that default to
-plotting all main beams when no `member` is specified:
+plotting all member groups when no `member` is specified:
 
 ```python
 og.plot_bmd(bridge_28, results)          # bending moment diagram (Mz)
@@ -264,8 +264,42 @@ og.plot_sfd(bridge_28, results)          # shear force diagram (Fy)
 og.plot_def(bridge_28, results)   # vertical deflection (y)
 ```
 
-Each returns a list of figures (one per main beam member group).  Pass
+Each returns a list of figures (one per member group).  Pass
 `member="interior_main_beam"` to plot a single member instead.
+
+### Selecting member groups
+
+The `member` parameter accepts a string for a single member, or a
+{class}`~ospgrillage.postprocessing.Members` bitflag to plot any combination
+of groups:
+
+```python
+# Plot only longitudinal members
+og.plot_bmd(bridge_28, results, member=og.Members.LONGITUDINAL, backend="plotly")
+
+# Combine individual members with |
+og.plot_bmd(bridge_28, results,
+            member=og.Members.EDGE_BEAM | og.Members.INTERIOR_MAIN_BEAM,
+            backend="plotly")
+
+# Plot everything (the default for plotly)
+og.plot_bmd(bridge_28, results, member=og.Members.ALL, backend="plotly")
+```
+
+Available individual flags:
+
+| Flag | Member name string |
+|---|---|
+| `EDGE_BEAM` | `"edge_beam"` |
+| `EXTERIOR_MAIN_BEAM_1` | `"exterior_main_beam_1"` |
+| `INTERIOR_MAIN_BEAM` | `"interior_main_beam"` |
+| `EXTERIOR_MAIN_BEAM_2` | `"exterior_main_beam_2"` |
+| `START_EDGE` | `"start_edge"` |
+| `END_EDGE` | `"end_edge"` |
+| `TRANSVERSE_SLAB` | `"transverse_slab"` |
+
+Pre-defined composites: `LONGITUDINAL` (all four longitudinal types),
+`TRANSVERSE` (transverse slab + start/end edges), `ALL` (everything).
 
 ### Customising plots
 

@@ -59,6 +59,7 @@ __all__ = [
     "create_point",
     # Post-processing & plotting
     "Envelope",
+    "Members",
     "PostProcessor",
     "create_envelope",
     "plot_force",

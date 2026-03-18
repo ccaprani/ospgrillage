@@ -7,6 +7,7 @@ module of OpenSeesPy - this module fills in gaps to
 * plot force and deflection diagrams from xarray DataSets
 """
 
+import enum
 import matplotlib.pyplot as plt
 import opsvis as opsv
 import numpy as np
@@ -18,6 +19,7 @@ from ospgrillage.utils import solve_zeta_eta
 
 __all__ = [
     "Envelope",
+    "Members",
     "PostProcessor",
     "create_envelope",
     "plot_force",
@@ -381,10 +383,13 @@ def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
     for member in members:
         n_groups = _num_z_groups(ospgrillage_obj, member)
         for zg in range(n_groups):
-            all_xx, all_zz, all_vals = _extract_force_data(
-                ospgrillage_obj, result_obj, component, member, loadcase,
-                z_group_num=zg,
-            )
+            try:
+                all_xx, all_zz, all_vals = _extract_force_data(
+                    ospgrillage_obj, result_obj, component, member, loadcase,
+                    z_group_num=zg,
+                )
+            except (KeyError, ValueError, IndexError):
+                continue  # member not available for this model type
             colour = colours[trace_idx % len(colours)]
             trace_name = member if n_groups == 1 else f"{member} [{zg+1}]"
 
@@ -485,52 +490,58 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
         if member in _TRANSVERSE:
             # Transverse members: extract per-element displacement at end
             # nodes and draw short line segments across the deck width.
-            colour = colours[trace_idx % len(colours)]
-            nodes_dict = ospgrillage_obj.get_nodes()
-            eletags = ospgrillage_obj.get_element(
-                member=member, options="elements",
-            )
-            if ospgrillage_obj.model_type == "shell_beam":
-                ele_node_da = result_obj.ele_nodes_beam
-            else:
-                ele_node_da = result_obj.ele_nodes
+            try:
+                colour = colours[trace_idx % len(colours)]
+                nodes_dict = ospgrillage_obj.get_nodes()
+                eletags = ospgrillage_obj.get_element(
+                    member=member, options="elements",
+                )
+                if ospgrillage_obj.model_type == "shell_beam":
+                    ele_node_da = result_obj.ele_nodes_beam
+                else:
+                    ele_node_da = result_obj.ele_nodes
 
-            all_x, all_y, all_v = [], [], []
-            for ele in eletags:
-                en = ele_node_da.sel(Element=ele).values
-                for nd in en:
-                    nd = int(nd)
-                    c = nodes_dict[nd]["coordinate"]
-                    if loadcase:
-                        d = float(result_obj.displacements.sel(
-                            Component=component, Node=nd, Loadcase=loadcase,
-                        ).values)
-                    else:
-                        d = float(result_obj.displacements.sel(
-                            Component=component, Node=nd,
-                        )[0].values)
-                    all_x.append(c[0])
-                    all_y.append(c[2])
-                    all_v.append(d * scale * sign)
-                # Insert None to break line between elements
-                all_x.append(None)
-                all_y.append(None)
-                all_v.append(None)
+                all_x, all_y, all_v = [], [], []
+                for ele in eletags:
+                    en = ele_node_da.sel(Element=ele).values
+                    for nd in en:
+                        nd = int(nd)
+                        c = nodes_dict[nd]["coordinate"]
+                        if loadcase:
+                            d = float(result_obj.displacements.sel(
+                                Component=component, Node=nd, Loadcase=loadcase,
+                            ).values)
+                        else:
+                            d = float(result_obj.displacements.sel(
+                                Component=component, Node=nd,
+                            )[0].values)
+                        all_x.append(c[0])
+                        all_y.append(c[2])
+                        all_v.append(d * scale * sign)
+                    # Insert None to break line between elements
+                    all_x.append(None)
+                    all_y.append(None)
+                    all_v.append(None)
 
-            fig.add_trace(go.Scatter3d(
-                x=all_x, y=all_y, z=all_v,
-                mode="lines",
-                line=dict(color=colour, width=3),
-                name=member,
-            ))
-            trace_idx += 1
+                fig.add_trace(go.Scatter3d(
+                    x=all_x, y=all_y, z=all_v,
+                    mode="lines",
+                    line=dict(color=colour, width=3),
+                    name=member,
+                ))
+                trace_idx += 1
+            except (KeyError, ValueError, IndexError):
+                pass  # member not available for this model type
             continue
 
         for zg in range(n_groups):
-            xx, zz, vals = _extract_defo_data(
-                ospgrillage_obj, result_obj, member, component, loadcase,
-                z_group_num=zg,
-            )
+            try:
+                xx, zz, vals = _extract_defo_data(
+                    ospgrillage_obj, result_obj, member, component, loadcase,
+                    z_group_num=zg,
+                )
+            except (KeyError, ValueError, IndexError):
+                continue  # member not available for this model type
             colour = colours[trace_idx % len(colours)]
             trace_name = member if n_groups == 1 else f"{member} [{zg+1}]"
             sv = np.array(vals) * scale * sign
@@ -747,45 +758,129 @@ def plot_defo(
 
 
 # ---------------------------------------------------------------------------
+# Member selection (bitflag enum)
+# ---------------------------------------------------------------------------
+class Members(enum.Flag):
+    """Bitflag enum for selecting which grillage member groups to plot.
+
+    Individual members can be combined with ``|``::
+
+        og.Members.EDGE_BEAM | og.Members.INTERIOR_MAIN_BEAM
+
+    Pre-defined composites are available for convenience::
+
+        og.Members.LONGITUDINAL   # all four longitudinal member types
+        og.Members.TRANSVERSE     # transverse slab + start/end edges
+        og.Members.ALL            # everything
+    """
+
+    EDGE_BEAM = enum.auto()
+    EXTERIOR_MAIN_BEAM_1 = enum.auto()
+    INTERIOR_MAIN_BEAM = enum.auto()
+    EXTERIOR_MAIN_BEAM_2 = enum.auto()
+    START_EDGE = enum.auto()
+    END_EDGE = enum.auto()
+    TRANSVERSE_SLAB = enum.auto()
+
+    # Convenience composites
+    LONGITUDINAL = (
+        EDGE_BEAM | EXTERIOR_MAIN_BEAM_1 | INTERIOR_MAIN_BEAM | EXTERIOR_MAIN_BEAM_2
+    )
+    TRANSVERSE = START_EDGE | END_EDGE | TRANSVERSE_SLAB
+    ALL = LONGITUDINAL | TRANSVERSE
+
+
+# Mapping between flag values and internal member name strings.
+_MEMBER_NAME_MAP = {
+    Members.EDGE_BEAM: "edge_beam",
+    Members.EXTERIOR_MAIN_BEAM_1: "exterior_main_beam_1",
+    Members.INTERIOR_MAIN_BEAM: "interior_main_beam",
+    Members.EXTERIOR_MAIN_BEAM_2: "exterior_main_beam_2",
+    Members.START_EDGE: "start_edge",
+    Members.END_EDGE: "end_edge",
+    Members.TRANSVERSE_SLAB: "transverse_slab",
+}
+
+# Reverse map: name string → flag (for backward-compatible str input).
+_NAME_TO_MEMBER = {v: k for k, v in _MEMBER_NAME_MAP.items()}
+
+
+def _resolve_members(member, backend="plotly"):
+    """Convert a *member* argument into a list of member-name strings.
+
+    Parameters
+    ----------
+    member : str, Members, or None
+        * ``None`` — use default set (backend-dependent).
+        * ``str``  — single member name (backward-compatible).
+        * ``Members`` flag — one or more members combined with ``|``.
+    backend : str
+        ``"plotly"`` defaults to :attr:`Members.ALL`; ``"matplotlib"``
+        defaults to :attr:`Members.LONGITUDINAL`.
+
+    Returns
+    -------
+    list[str]
+        Ordered list of member name strings.
+    """
+    if member is None:
+        flag = Members.ALL if backend == "plotly" else Members.LONGITUDINAL
+    elif isinstance(member, str):
+        if member not in _NAME_TO_MEMBER:
+            raise ValueError(
+                f"Unknown member {member!r}. "
+                f"Valid names: {list(_NAME_TO_MEMBER.keys())}"
+            )
+        flag = _NAME_TO_MEMBER[member]
+    elif isinstance(member, Members):
+        flag = member
+    else:
+        raise TypeError(
+            f"member must be str, Members, or None, got {type(member).__name__}"
+        )
+
+    # Decompose the composite flag into individual members, preserving
+    # the declaration order of the enum.
+    return [
+        _MEMBER_NAME_MAP[m]
+        for m in Members
+        if m in flag and m in _MEMBER_NAME_MAP
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Convenience plotting wrappers
 # ---------------------------------------------------------------------------
-_ALL_MEMBERS = [
-    "edge_beam",
-    "exterior_main_beam_1",
-    "interior_main_beam",
-    "exterior_main_beam_2",
-    "transverse_slab",
-]
-
-_LONGITUDINAL_MEMBERS = [
-    "edge_beam",
-    "exterior_main_beam_1",
-    "interior_main_beam",
-    "exterior_main_beam_2",
-]
 
 
 def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
              backend="matplotlib", **kwargs):
-    """
-    Plot bending moment diagram (Mz) for one or all main beams.
-
-    When *member* is ``None``, iterates over the three main-beam member groups
-    and returns a list of figures.
+    """Plot bending moment diagram (Mz) for selected member groups.
 
     :param ospgrillage_obj: Grillage model object.
     :param result_obj: xarray DataSet of results.
-    :param member: Member name. If ``None``, plots all main beams.
+    :param member: Which members to plot.
+
+        * ``None`` (default) — all members (plotly) or longitudinal only
+          (matplotlib).
+        * A member name string such as ``"interior_main_beam"`` — single
+          member (backward-compatible).
+        * A :class:`Members` flag such as ``Members.LONGITUDINAL`` or
+          ``Members.EDGE_BEAM | Members.INTERIOR_MAIN_BEAM`` — any
+          combination.
+    :type member: str, Members, or None
     :param loadcase: Load case name. If ``None``, uses the first load case.
-    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
+    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"``
+        (interactive 3D).
     :param \\**kwargs: Forwarded to the underlying renderer.  See
         :func:`plot_force` (matplotlib) or the Plotly builder for accepted
         keyword arguments such as *figsize*, *ax*, *scale*, *title*,
         *color*, *fill*, *alpha*, and *show*.
-    :returns: Single axes when *member* is given, else list of axes.
-        For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
+    :returns: Single axes when *member* is a string, else list of axes.
+        For ``backend="plotly"``, returns a single
+        :class:`plotly.graph_objects.Figure`.
     """
-    members = [member] if member else _ALL_MEMBERS
+    members = _resolve_members(member, backend)
     if backend == "plotly":
         show = kwargs.pop("show", True)
         plotly_kw = {k: v for k, v in kwargs.items()
@@ -800,14 +895,14 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
             fig.show()
             return None
         return fig
-    # matplotlib path
-    if member is not None:
+    # matplotlib path — single string returns one axes (backward compat)
+    if isinstance(member, str):
         return plot_force(
             ospgrillage_obj, result_obj, component="Mz",
             member=member, loadcase=loadcase, **kwargs,
         )
     figs = []
-    for m in _LONGITUDINAL_MEMBERS:
+    for m in members:
         try:
             figs.append(
                 plot_force(
@@ -822,25 +917,30 @@ def plot_bmd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
 
 def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
              backend="matplotlib", **kwargs):
-    """
-    Plot shear force diagram (Fy) for one or all members.
-
-    When *member* is ``None`` and ``backend="plotly"``, plots all member groups
-    (longitudinal and transverse) in a single interactive 3D figure.
-    For the ``"matplotlib"`` backend, plots longitudinal members only
-    (one figure per member group).
+    """Plot shear force diagram (Fy) for selected member groups.
 
     :param ospgrillage_obj: Grillage model object.
     :param result_obj: xarray DataSet of results.
-    :param member: Member name. If ``None``, plots all members.
+    :param member: Which members to plot.
+
+        * ``None`` (default) — all members (plotly) or longitudinal only
+          (matplotlib).
+        * A member name string such as ``"interior_main_beam"`` — single
+          member (backward-compatible).
+        * A :class:`Members` flag such as ``Members.LONGITUDINAL`` or
+          ``Members.EDGE_BEAM | Members.INTERIOR_MAIN_BEAM`` — any
+          combination.
+    :type member: str, Members, or None
     :param loadcase: Load case name. If ``None``, uses the first load case.
-    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
+    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"``
+        (interactive 3D).
     :param \\**kwargs: Forwarded to the underlying renderer.  See
         :func:`plot_force` for accepted keyword arguments.
-    :returns: Single axes when *member* is given, else list of axes.
-        For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
+    :returns: Single axes when *member* is a string, else list of axes.
+        For ``backend="plotly"``, returns a single
+        :class:`plotly.graph_objects.Figure`.
     """
-    members = [member] if member else _ALL_MEMBERS
+    members = _resolve_members(member, backend)
     if backend == "plotly":
         show = kwargs.pop("show", True)
         plotly_kw = {k: v for k, v in kwargs.items()
@@ -855,14 +955,14 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
             fig.show()
             return None
         return fig
-    # matplotlib path
-    if member is not None:
+    # matplotlib path — single string returns one axes (backward compat)
+    if isinstance(member, str):
         return plot_force(
             ospgrillage_obj, result_obj, component="Fy",
             member=member, loadcase=loadcase, **kwargs,
         )
     figs = []
-    for m in _LONGITUDINAL_MEMBERS:
+    for m in members:
         try:
             figs.append(
                 plot_force(
@@ -877,23 +977,30 @@ def plot_sfd(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
 
 def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
              backend="matplotlib", **kwargs):
-    """
-    Plot vertical deflection (y-displacement) for one or all longitudinal members.
-
-    When *member* is ``None``, iterates over all longitudinal member groups
-    (edge beams, exterior beams, interior beams).
+    """Plot vertical deflection (y-displacement) for selected member groups.
 
     :param ospgrillage_obj: Grillage model object.
     :param result_obj: xarray DataSet of results.
-    :param member: Member name. If ``None``, plots all longitudinal members.
+    :param member: Which members to plot.
+
+        * ``None`` (default) — all members (plotly) or longitudinal only
+          (matplotlib).
+        * A member name string such as ``"interior_main_beam"`` — single
+          member (backward-compatible).
+        * A :class:`Members` flag such as ``Members.LONGITUDINAL`` or
+          ``Members.EDGE_BEAM | Members.INTERIOR_MAIN_BEAM`` — any
+          combination.
+    :type member: str, Members, or None
     :param loadcase: Load case name. If ``None``, uses the first load case.
-    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"`` (interactive 3D).
+    :param backend: ``"matplotlib"`` (default, static) or ``"plotly"``
+        (interactive 3D).
     :param \\**kwargs: Forwarded to the underlying renderer.  See
         :func:`plot_defo` for accepted keyword arguments.
-    :returns: Single axes when *member* is given, else list of axes.
-        For ``backend="plotly"``, returns a single :class:`plotly.graph_objects.Figure`.
+    :returns: Single axes when *member* is a string, else list of axes.
+        For ``backend="plotly"``, returns a single
+        :class:`plotly.graph_objects.Figure`.
     """
-    members = [member] if member else _ALL_MEMBERS
+    members = _resolve_members(member, backend)
     if backend == "plotly":
         show = kwargs.pop("show", True)
         plotly_kw = {k: v for k, v in kwargs.items()
@@ -910,13 +1017,14 @@ def plot_def(ospgrillage_obj, result_obj=None, member=None, loadcase=None,
     # matplotlib path — filter to defo-compatible kwargs (no fill/alpha)
     defo_kw = {k: v for k, v in kwargs.items()
                if k in ("figsize", "ax", "scale", "title", "color", "show")}
-    if member is not None:
+    # Single string returns one axes (backward compat)
+    if isinstance(member, str):
         return plot_defo(
             ospgrillage_obj, result_obj, member=member,
             component="y", loadcase=loadcase, **defo_kw,
         )
     figs = []
-    for m in _LONGITUDINAL_MEMBERS:
+    for m in members:
         try:
             figs.append(
                 plot_defo(

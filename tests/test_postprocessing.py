@@ -585,3 +585,132 @@ def test_plot_model_invalid_backend(bridge_model_42_negative):
     bridge = bridge_model_42_negative
     with pytest.raises(ValueError, match="Unknown backend"):
         og.plot_model(bridge, backend="vtk")
+
+
+# ---------------------------------------------------------------------------
+# Members enum tests
+# ---------------------------------------------------------------------------
+def test_members_enum_composites():
+    """Members composites resolve to expected individual flags."""
+    assert og.Members.LONGITUDINAL == (
+        og.Members.EDGE_BEAM
+        | og.Members.EXTERIOR_MAIN_BEAM_1
+        | og.Members.INTERIOR_MAIN_BEAM
+        | og.Members.EXTERIOR_MAIN_BEAM_2
+    )
+    assert og.Members.TRANSVERSE == (
+        og.Members.START_EDGE | og.Members.END_EDGE | og.Members.TRANSVERSE_SLAB
+    )
+    assert og.Members.ALL == og.Members.LONGITUDINAL | og.Members.TRANSVERSE
+
+
+def test_resolve_members_none_plotly():
+    """member=None with plotly backend resolves to all 7 members."""
+    from ospgrillage.postprocessing import _resolve_members
+
+    result = _resolve_members(None, backend="plotly")
+    assert len(result) == 7
+    assert "transverse_slab" in result
+    assert "start_edge" in result
+
+
+def test_resolve_members_none_matplotlib():
+    """member=None with matplotlib backend resolves to 4 longitudinal members."""
+    from ospgrillage.postprocessing import _resolve_members
+
+    result = _resolve_members(None, backend="matplotlib")
+    assert len(result) == 4
+    assert "transverse_slab" not in result
+
+
+def test_resolve_members_string():
+    """A string member name resolves to a single-element list."""
+    from ospgrillage.postprocessing import _resolve_members
+
+    result = _resolve_members("interior_main_beam")
+    assert result == ["interior_main_beam"]
+
+
+def test_resolve_members_flag_combination():
+    """A combined flag resolves in declaration order."""
+    from ospgrillage.postprocessing import _resolve_members
+
+    result = _resolve_members(
+        og.Members.TRANSVERSE_SLAB | og.Members.EDGE_BEAM
+    )
+    assert result == ["edge_beam", "transverse_slab"]
+
+
+def test_resolve_members_invalid_string():
+    """An unknown member name raises ValueError."""
+    from ospgrillage.postprocessing import _resolve_members
+
+    with pytest.raises(ValueError, match="Unknown member"):
+        _resolve_members("nonexistent_beam")
+
+
+def test_resolve_members_invalid_type():
+    """An unsupported type raises TypeError."""
+    from ospgrillage.postprocessing import _resolve_members
+
+    with pytest.raises(TypeError, match="must be str, Members, or None"):
+        _resolve_members(42)
+
+
+def test_plot_bmd_with_members_flag(bridge_model_42_negative):
+    """plot_bmd matplotlib backend accepts a Members flag."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    axes = og.plot_bmd(
+        bridge, results,
+        member=og.Members.INTERIOR_MAIN_BEAM | og.Members.EDGE_BEAM,
+    )
+    assert isinstance(axes, list)
+    assert len(axes) >= 1
+
+
+def test_plot_sfd_with_members_flag(bridge_model_42_negative):
+    """plot_sfd matplotlib backend accepts a Members flag."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    axes = og.plot_sfd(
+        bridge, results,
+        member=og.Members.LONGITUDINAL,
+    )
+    assert isinstance(axes, list)
+    assert len(axes) >= 1
+
+
+def test_plot_def_with_members_flag(bridge_model_42_negative):
+    """plot_def matplotlib backend accepts a Members flag."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    axes = og.plot_def(
+        bridge, results,
+        member=og.Members.INTERIOR_MAIN_BEAM,
+    )
+    assert isinstance(axes, list)
+    assert len(axes) >= 1
+
+
+def test_plot_bmd_plotly_members_flag(bridge_model_42_negative):
+    """plot_bmd plotly backend accepts a Members flag."""
+    go = pytest.importorskip("plotly.graph_objects")
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    fig = og.plot_bmd(
+        bridge, results,
+        member=og.Members.LONGITUDINAL,
+        backend="plotly", show=False,
+    )
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+
+def test_plot_def_plotly_members_flag(bridge_model_42_negative):
+    """plot_def plotly backend accepts a Members flag."""
+    go = pytest.importorskip("plotly.graph_objects")
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+    fig = og.plot_def(
+        bridge, results,
+        member=og.Members.ALL,
+        backend="plotly", show=False,
+    )
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
