@@ -1146,13 +1146,13 @@ def test_compare_shell_beam_analysis(run_beam_model_point_load):
     og.plot_force(
         beam_bridge, result_beam, member="exterior_main_beam_2", component="Mz"
     )
-    og.plot_defo(
-        beam_bridge, result_beam, member="exterior_main_beam_1", option="nodes"
+    og.plot_def(
+        beam_bridge, result_beam, members="exterior_main_beam_1",
     )
-    og.plot_defo(
-        shell_bridge, result_shell, member="interior_main_beam", option="nodes"
+    og.plot_def(
+        shell_bridge, result_shell, members="interior_main_beam",
     )
-    # og.opsv.plot_defo()  # removed: opsv not part of public API
+    # og.opsv.plot_defo()  # removed: opsv is not part of the public API
 
 
 def test_transient(beam_element_bridge):

@@ -63,9 +63,9 @@ __all__ = [
     "PostProcessor",
     "create_envelope",
     "plot_force",
-    "plot_defo",
     "plot_bmd",
     "plot_sfd",
+    "plot_tmd",
     "plot_def",
     "plot_model",
 ]

@@ -42,7 +42,6 @@ from ospgrillage.postprocessing import (
     Envelope,
     PostProcessor,
     create_envelope,
-    plot_defo,
     plot_force,
 )
 from ospgrillage.utils import (
@@ -2217,22 +2216,37 @@ class OspGrillage:
 
     def get_results(self, **kwargs):
         """
-        Function to get results from specific or all load cases. Alternatively, function process and returns load combination if
-        "combina+tions" argument is provided. Result format is xarray DataSet. If a "save_file_name" is provided, saves
-        xarray DataSet to NetCDF format to current working directory.
+        Return analysis results as an xarray ``Dataset``.
 
-        :param combinations: Load combination definition. When provided, returns a modified DataSet
-            computed from the specified combinations. Pass as a ``dict`` with load case name strings
+        By default **all** load cases are compiled, including every
+        incremental position of every moving load.  For models with
+        moving loads this can be very slow — use the *load_case*
+        parameter to retrieve only what you need::
+
+            # Fast — six static cases only
+            results = model.get_results(
+                load_case=["Dead load", "SIDL", "M1600 L1"]
+            )
+
+            # Fast — one moving load (all its increments)
+            moving = model.get_results(load_case="Moving M1600 L1")
+
+        :param load_case: Name string or list of name strings of specific
+            load cases to extract.  The returned DataSet contains only the
+            specified load cases.  **Recommended** when the model includes
+            moving loads.
+        :type load_case: str or list of str, optional
+        :param combinations: Load combination definition. When provided,
+            returns a modified DataSet computed from the specified
+            combinations. Pass as a ``dict`` with load case name strings
             as keys and load factors (``int`` or ``float``) as values.
         :type combinations: dict, optional
-        :param save_file_name: File name for saving results to NetCDF format in the current working directory.
+        :param save_file_name: File name for saving results to NetCDF
+            format in the current working directory.
         :type save_file_name: str, optional
-        :param load_case: Name string or list of name strings of specific load cases to extract.
-            The returned DataSet contains only the specified load cases.
-        :type load_case: str or list of str, optional
-        :returns: Xarray DataSet of analysis results. If ``combinations`` is provided, returns a list
-            of DataSets, one per load combination.
-
+        :returns: Xarray DataSet of analysis results.  If ``combinations``
+            is provided, returns a list of DataSets, one per load
+            combination.
         """
         # instantiate variables
         list_of_moving_load_case = []

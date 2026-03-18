@@ -236,10 +236,10 @@ grillage object is named `bridge_28`.
 ![Figure 2: 28 m super-T bridge model.](../images/28m_bridge.PNG)
 
 To plot deflection from the `displacements` DataArray use
-{func}`~ospgrillage.postprocessing.plot_defo`, specifying a grillage member name:
+{func}`~ospgrillage.postprocessing.plot_def`, specifying a grillage member name:
 
 ```python
-og.plot_defo(bridge_28, results, member="exterior_main_beam_2", option="nodes")
+og.plot_def(bridge_28, results, members="exterior_main_beam_2")
 ```
 
 ![Figure 3: Deflected shape of exterior main beam 2.](../images/example_deflected.PNG)

@@ -270,7 +270,7 @@ def test_plot_bmd(bridge_model_42_negative):
     results = example_bridge.get_results(local_forces=False)
 
     # single member
-    ax = og.plot_bmd(example_bridge, results, member="interior_main_beam")
+    ax = og.plot_bmd(example_bridge, results, members="interior_main_beam")
     assert ax is not None
 
     # all main beams (returns list)
@@ -293,7 +293,7 @@ def test_plot_sfd(bridge_model_42_negative):
     example_bridge.analyze()
     results = example_bridge.get_results(local_forces=False)
 
-    ax = og.plot_sfd(example_bridge, results, member="interior_main_beam")
+    ax = og.plot_sfd(example_bridge, results, members="interior_main_beam")
     assert ax is not None
 
     axes = og.plot_sfd(example_bridge, results)
@@ -315,7 +315,7 @@ def test_plot_def(bridge_model_42_negative):
     example_bridge.analyze()
     results = example_bridge.get_results(local_forces=False)
 
-    ax = og.plot_def(example_bridge, results, member="interior_main_beam")
+    ax = og.plot_def(example_bridge, results, members="interior_main_beam")
     assert ax is not None
 
     axes = og.plot_def(example_bridge, results)
@@ -402,7 +402,7 @@ def test_plotly_single_member(bridge_model_42_negative):
     results = example_bridge.get_results(local_forces=False)
 
     fig = og.plot_bmd(
-        example_bridge, results, member="interior_main_beam",
+        example_bridge, results, members="interior_main_beam",
         backend="plotly", show=False,
     )
     assert isinstance(fig, go.Figure)
@@ -506,7 +506,7 @@ def test_plot_bmd_kwargs_passthrough(bridge_model_42_negative):
     """plot_bmd forwards kwargs to plot_force without error."""
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
     ax = og.plot_bmd(
-        bridge, results, member="interior_main_beam",
+        bridge, results, members="interior_main_beam",
         figsize=(12, 4), scale=0.001, title="BMD (kNm)",
     )
     assert ax is not None
@@ -514,10 +514,10 @@ def test_plot_bmd_kwargs_passthrough(bridge_model_42_negative):
 
 
 def test_plot_def_kwargs_passthrough(bridge_model_42_negative):
-    """plot_def forwards kwargs to plot_defo without error."""
+    """plot_def forwards kwargs to the deflection renderer without error."""
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
     ax = og.plot_def(
-        bridge, results, member="interior_main_beam",
+        bridge, results, members="interior_main_beam",
         figsize=(12, 4), scale=1000, color="g",
     )
     assert ax is not None
@@ -662,7 +662,7 @@ def test_plot_bmd_with_members_flag(bridge_model_42_negative):
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
     axes = og.plot_bmd(
         bridge, results,
-        member=og.Members.INTERIOR_MAIN_BEAM | og.Members.EDGE_BEAM,
+        members=og.Members.INTERIOR_MAIN_BEAM | og.Members.EDGE_BEAM,
     )
     assert isinstance(axes, list)
     assert len(axes) >= 1
@@ -673,7 +673,7 @@ def test_plot_sfd_with_members_flag(bridge_model_42_negative):
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
     axes = og.plot_sfd(
         bridge, results,
-        member=og.Members.LONGITUDINAL,
+        members=og.Members.LONGITUDINAL,
     )
     assert isinstance(axes, list)
     assert len(axes) >= 1
@@ -684,7 +684,7 @@ def test_plot_def_with_members_flag(bridge_model_42_negative):
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
     axes = og.plot_def(
         bridge, results,
-        member=og.Members.INTERIOR_MAIN_BEAM,
+        members=og.Members.INTERIOR_MAIN_BEAM,
     )
     assert isinstance(axes, list)
     assert len(axes) >= 1
@@ -696,7 +696,7 @@ def test_plot_bmd_plotly_members_flag(bridge_model_42_negative):
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
     fig = og.plot_bmd(
         bridge, results,
-        member=og.Members.LONGITUDINAL,
+        members=og.Members.LONGITUDINAL,
         backend="plotly", show=False,
     )
     assert isinstance(fig, go.Figure)
@@ -709,8 +709,97 @@ def test_plot_def_plotly_members_flag(bridge_model_42_negative):
     bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
     fig = og.plot_def(
         bridge, results,
-        member=og.Members.ALL,
+        members=og.Members.ALL,
         backend="plotly", show=False,
     )
     assert isinstance(fig, go.Figure)
     assert len(fig.data) > 0
+
+
+
+# ---------------------------------------------------------------------------
+# Torsion moment diagram tests
+# ---------------------------------------------------------------------------
+def test_plot_tmd(bridge_model_42_negative):
+    """plot_tmd returns a figure for a single member and a list for all."""
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+
+    # single member
+    ax = og.plot_tmd(bridge, results, members="interior_main_beam")
+    assert ax is not None
+
+    # all main beams (returns list)
+    axes = og.plot_tmd(bridge, results)
+    assert isinstance(axes, list)
+    assert len(axes) >= 1
+
+
+def test_plot_tmd_plotly(bridge_model_42_negative):
+    """plot_tmd with backend='plotly' returns a plotly Figure."""
+    go = pytest.importorskip("plotly.graph_objects")
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+
+    fig = og.plot_tmd(bridge, results, backend="plotly", show=False)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+
+# ---------------------------------------------------------------------------
+# Plotly fill (Mesh3d ribbon) tests
+# ---------------------------------------------------------------------------
+def test_plotly_force_fill(bridge_model_42_negative):
+    """Plotly BMD includes Mesh3d fill traces by default."""
+    go = pytest.importorskip("plotly.graph_objects")
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+
+    fig = og.plot_bmd(
+        bridge, results, members="interior_main_beam",
+        backend="plotly", show=False,
+    )
+    mesh_traces = [t for t in fig.data if isinstance(t, go.Mesh3d)]
+    assert len(mesh_traces) >= 1
+
+
+def test_plotly_force_no_fill(bridge_model_42_negative):
+    """fill=False suppresses Mesh3d traces."""
+    go = pytest.importorskip("plotly.graph_objects")
+    bridge, results = _make_analyzed_bridge(bridge_model_42_negative)
+
+    fig = og.plot_bmd(
+        bridge, results, members="interior_main_beam",
+        backend="plotly", show=False, fill=False,
+    )
+    mesh_traces = [t for t in fig.data if isinstance(t, go.Mesh3d)]
+    assert len(mesh_traces) == 0
+
+
+# ---------------------------------------------------------------------------
+# Support drawing tests
+# ---------------------------------------------------------------------------
+def test_plot_model_supports_matplotlib(bridge_model_42_negative):
+    """plot_model with show_supports=True draws support markers."""
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    ax = og.plot_model(bridge, show_supports=True)
+    assert ax is not None
+
+
+def test_plot_model_supports_plotly(bridge_model_42_negative):
+    """plot_model plotly with show_supports=True includes support traces."""
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    fig = og.plot_model(bridge, backend="plotly", show=False, show_supports=True)
+    assert isinstance(fig, go.Figure)
+    support_traces = [t for t in fig.data if "support" in (t.name or "")]
+    assert len(support_traces) >= 1
+
+
+def test_plot_model_no_supports(bridge_model_42_negative):
+    """plot_model with show_supports=False omits support markers."""
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    fig = og.plot_model(bridge, backend="plotly", show=False, show_supports=False)
+    support_traces = [t for t in fig.data if "support" in (t.name or "")]
+    assert len(support_traces) == 0
