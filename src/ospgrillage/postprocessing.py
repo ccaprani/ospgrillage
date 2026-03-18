@@ -266,9 +266,9 @@ def _extract_force_data(ospgrillage_obj, result_obj, component, member,
         else:
             ele_node = result_obj.ele_nodes.sel(Element=ele)
 
-        xx = [nodes[n]["coordinate"][0] for n in ele_node.values]
-        yy = [nodes[n]["coordinate"][1] for n in ele_node.values]
-        zz = [nodes[n]["coordinate"][2] for n in ele_node.values]
+        xx = [nodes[int(n)]["coordinate"][0] for n in ele_node.values]
+        yy = [nodes[int(n)]["coordinate"][1] for n in ele_node.values]
+        zz = [nodes[int(n)]["coordinate"][2] for n in ele_node.values]
 
         # opsvis section force distribution
         s, *_ = opsv.section_force_distribution_3d(
