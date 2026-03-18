@@ -42,6 +42,11 @@ def create_section(**kwargs):
     :type Az: float, optional
     :param Ay: Shear area in the local y direction.
     :type Ay: float, optional
+    :param offset_y: Vertical offset from section centroid to the grillage model plane.
+        When provided, the parallel axis theorem is applied:
+        ``I_offset = I_centroid + A * offset_y**2`` for both Iz and Iy.
+        J (torsion) is not modified.
+    :type offset_y: float, optional
     :returns: :class:`Section` object.
     """
     return Section(**kwargs)
@@ -84,6 +89,7 @@ class Section:
         c_mass_flag: bool = False,
         unit_width: bool = False,
         op_section_type: str = "Elastic",
+        offset_y: float = None,
         **kwargs,
     ):
         """
@@ -120,6 +126,11 @@ class Section:
         :type Az: float, optional
         :param Ay: Shear area in the local y direction.
         :type Ay: float, optional
+        :param offset_y: Vertical offset from section centroid to the grillage model
+            plane. When provided, the parallel axis theorem is applied:
+            ``I_offset = I_centroid + A * offset_y**2`` for both Iz and Iy.
+            J (torsion) is not modified.
+        :type offset_y: float, optional
 
         .. note::
 
@@ -140,6 +151,7 @@ class Section:
         self.Ay = kwargs.get("Ay", None)
         self.Az = kwargs.get("Az", None)
         self.J = kwargs.get("J", None)
+        self.offset_y = offset_y
         # for non-linear properties
         self.alpha_y = kwargs.get("alpha_y", None)
         self.alpha_z = kwargs.get("alpha_z", None)
@@ -191,6 +203,14 @@ class Section:
             self.Az = 0.2 * self.A
         if self.Iy is None and self.Iz is not None:
             self.Iy = 0.2 * self.Iz
+
+        # Apply parallel axis theorem when offset_y is provided
+        if self.offset_y is not None and self.A is not None:
+            d_sq = self.offset_y ** 2
+            if self.Iz is not None:
+                self.Iz += self.A * d_sq
+            if self.Iy is not None:
+                self.Iy += self.A * d_sq
 
 
 # ----------------------------------------------------------------------------------------------------------------

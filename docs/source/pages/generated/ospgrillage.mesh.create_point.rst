@@ -1,0 +1,6 @@
+﻿create\_point
+=============
+
+.. currentmodule:: ospgrillage.mesh
+
+.. autofunction:: create_point

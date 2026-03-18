@@ -21,7 +21,7 @@ from ospgrillage.load import (
     CompoundLoad,
     LineLoading,
     LoadCase,
-    LoadPoint,
+    LoadVertex,
     MovingLoad,
     NodalLoad,
     PatchLoading,
@@ -42,7 +42,6 @@ from ospgrillage.postprocessing import (
     Envelope,
     PostProcessor,
     create_envelope,
-    plot_defo,
     plot_force,
 )
 from ospgrillage.utils import (
@@ -168,9 +167,11 @@ def create_grillage(**kwargs):
     :type edge_beam_dist: int or float
     :param mesh_type: Type of mesh either "Ortho" or "Oblique" - default "Ortho"
     :type mesh_type: string
-    :param ext_to_int_dist: Distance between internal beams and exterior main beams.
-        If a list of size 2 is provided, the two values are applied to the left and right side respectively.
-    :type ext_to_int_dist: int, float, or list of int/float
+    :param beam_spacing: Custom spacing of longitudinal members (global z-direction).
+        A list of distances where the first and last entries are edge-beam overhangs
+        and middle entries are between-main-beam distances.
+        Supersedes ``num_long_grid`` and ``edge_beam_dist`` when provided.
+    :type beam_spacing: list of int or float
 
     Depending on the ``model_type`` argument, this function returns the relevant concrete class of
     :class:`~ospgrillage.osp_grillage.OspGrillage`.
@@ -246,15 +247,15 @@ class OspGrillage:
         :type edge_beam_dist: int or float
         :param mesh_type: Type of mesh either "Ortho" for orthogonal mesh or "Oblique" for oblique mesh
         :type mesh_type: string
-        :param beam_z_spacing: Custom spacing of longitudinal members (global z-direction).
-            Supersedes ``num_long_grid`` when provided.
-        :type beam_z_spacing: list of int or float
+        :param beam_spacing: Custom spacing of longitudinal members (global z-direction).
+            A list of distances where the first and last entries are edge-beam overhangs
+            and middle entries are between-main-beam distances.
+            Supersedes ``num_long_grid`` and ``edge_beam_dist`` when provided.
+            The old name ``beam_z_spacing`` is accepted but deprecated.
+        :type beam_spacing: list of int or float
         :param beam_x_spacing: Custom spacing of transverse members (global x-direction).
             Supersedes ``num_trans_grid`` when provided.
         :type beam_x_spacing: list of int or float
-        :param ext_to_int_dist: Distance between internal beams and exterior main beams.
-            If a list of size 2 is provided, the two values are applied to the left and right side respectively.
-        :type ext_to_int_dist: int, float, or list of int/float
         :param multi_span_dist_list: List of span lengths (x-direction) for each span in a multi-span model.
         :type multi_span_dist_list: list of int or float
         :param multi_span_num_points: Number of transverse members per span. If not specified, ``num_trans_grid``
@@ -486,8 +487,7 @@ class OspGrillage:
             file_handle.write("# Constructed on:{}\n".format(dt_string))
             # necessary imports
             file_handle.write(
-                "import numpy as np\nimport math\nimport openseespy.opensees as ops"
-                "\nimport vfo.vfo as opsplt\n"
+                "import numpy as np\nimport math\nimport openseespy.opensees as ops\n"
             )
 
     # interface function
@@ -1178,7 +1178,7 @@ class OspGrillage:
             z = point[2]
             # set point to tuple
             loading_point = Point(x, y, z)
-        elif isinstance(point, LoadPoint):
+        elif isinstance(point, LoadVertex):
             loading_point = point
         for grid_tag, grid_nodes in self.Mesh_obj.grid_number_dict.items():
             # get grid nodes coordinate as named tuple Point
@@ -1743,7 +1743,7 @@ class OspGrillage:
                 p = patch_load_obj.patch_mag_interpolate(
                     coord[0], coord[2]
                 )  # object function returns array like
-                p_list.append(LoadPoint(coord[0], coord[1], coord[2], p))
+                p_list.append(LoadVertex(coord[0], coord[1], coord[2], p))
             # get centroid of patch on grid
             xc, yc, zc = get_patch_centroid(p_list)
             inside_point = Point(xc, yc, zc)
@@ -1814,7 +1814,7 @@ class OspGrillage:
                     )  # object function returns array like
                     # p is array object, extract
                     p_list.append(
-                        LoadPoint(int_point[0], int_point[1], int_point[2], p)
+                        LoadVertex(int_point[0], int_point[1], int_point[2], p)
                         if int_point != []
                         else []
                     )
@@ -1824,7 +1824,7 @@ class OspGrillage:
                 p = patch_load_obj.patch_mag_interpolate(
                     coord[0], coord[2]
                 )  # object function returns array like
-                p_list.append(LoadPoint(coord[0], coord[1], coord[2], p))
+                p_list.append(LoadVertex(coord[0], coord[1], coord[2], p))
             # Loop each p_list object to find duplicates if any, remove duplicate
             for count, point in enumerate(p_list):
                 dupe = [point == val for val in p_list]
@@ -1948,35 +1948,37 @@ class OspGrillage:
     # ---------------------------------------------------------------
     # interface functions for load analysis utilities
     def add_load_case(
-        self, load_case_obj: Union[LoadCase, MovingLoad], load_factor=1
+        self, load_case: Union[LoadCase, MovingLoad], load_factor=1
     ) -> None:
         """
-        Function to add load cases to Ospllage grillage model. Function also adds moving load cases
+        Add a load case or moving load to the grillage model.
 
-        :param load_factor: Optional load factor for the prescribed load case. Default = 1
-        :param load_case_obj: LoadCase or MovingLoad object
-        :type load_case_obj: LoadCase,MovingLoad
+        :param load_case: LoadCase or MovingLoad object.
+        :type load_case: LoadCase or MovingLoad
+        :param load_factor: Optional load factor for the prescribed load case.
+            Default = 1.
+        :type load_factor: float
 
         """
 
-        if isinstance(load_case_obj, LoadCase):
+        if isinstance(load_case, LoadCase):
             # update the load command list of load case object
-            load_str = self._distribute_load_types_to_model(load_case_obj=load_case_obj)
+            load_str = self._distribute_load_types_to_model(load_case_obj=load_case)
             # store load case + load command in dict and add to load_case_list
             load_case_dict = {
-                "name": load_case_obj.name,
-                "loadcase": deepcopy(load_case_obj),
+                "name": load_case.name,
+                "loadcase": deepcopy(load_case),
                 "load_command": load_str,
                 "load_factor": load_factor,
-            }  # FORMATTING HERE
+            }
 
             self.load_case_list.append(load_case_dict)
             if self.diagnostics:
-                logger.info("Load Case: %s added", load_case_obj.name)
-        elif isinstance(load_case_obj, MovingLoad):
+                logger.info("Load Case: %s added", load_case.name)
+        elif isinstance(load_case, MovingLoad):
             # get the list of individual load cases
             list_of_incr_load_case_dict = []
-            moving_load_obj = load_case_obj
+            moving_load_obj = load_case
             # object method to create incremental load cases representing the position of the load
             moving_load_obj.parse_moving_load_cases()
 
@@ -2214,22 +2216,37 @@ class OspGrillage:
 
     def get_results(self, **kwargs):
         """
-        Function to get results from specific or all load cases. Alternatively, function process and returns load combination if
-        "combina+tions" argument is provided. Result format is xarray DataSet. If a "save_file_name" is provided, saves
-        xarray DataSet to NetCDF format to current working directory.
+        Return analysis results as an xarray ``Dataset``.
 
-        :param combinations: Load combination definition. When provided, returns a modified DataSet
-            computed from the specified combinations. Pass as a ``dict`` with load case name strings
+        By default **all** load cases are compiled, including every
+        incremental position of every moving load.  For models with
+        moving loads this can be very slow — use the *load_case*
+        parameter to retrieve only what you need::
+
+            # Fast — six static cases only
+            results = model.get_results(
+                load_case=["Dead load", "SIDL", "M1600 L1"]
+            )
+
+            # Fast — one moving load (all its increments)
+            moving = model.get_results(load_case="Moving M1600 L1")
+
+        :param load_case: Name string or list of name strings of specific
+            load cases to extract.  The returned DataSet contains only the
+            specified load cases.  **Recommended** when the model includes
+            moving loads.
+        :type load_case: str or list of str, optional
+        :param combinations: Load combination definition. When provided,
+            returns a modified DataSet computed from the specified
+            combinations. Pass as a ``dict`` with load case name strings
             as keys and load factors (``int`` or ``float``) as values.
         :type combinations: dict, optional
-        :param save_file_name: File name for saving results to NetCDF format in the current working directory.
+        :param save_file_name: File name for saving results to NetCDF
+            format in the current working directory.
         :type save_file_name: str, optional
-        :param load_case: Name string or list of name strings of specific load cases to extract.
-            The returned DataSet contains only the specified load cases.
-        :type load_case: str or list of str, optional
-        :returns: Xarray DataSet of analysis results. If ``combinations`` is provided, returns a list
-            of DataSets, one per load combination.
-
+        :returns: Xarray DataSet of analysis results.  If ``combinations``
+            is provided, returns a list of DataSets, one per load
+            combination.
         """
         # instantiate variables
         list_of_moving_load_case = []
@@ -2408,7 +2425,14 @@ class OspGrillage:
         # reading common elements off namestring
         if namestring == "transverse_slab":
             extracted_ele = self.Mesh_obj.trans_ele
-            # TODO
+            if options == node_option:
+                node_set = set()
+                for ele in extracted_ele:
+                    node_set.add(ele[1])
+                    node_set.add(ele[2])
+                sorted_return_list = sorted(list(node_set))
+            elif options == element_option:
+                sorted_return_list = [ele[0] for ele in extracted_ele]
         elif namestring == "start_edge" or namestring == "end_edge":
             extracted_ele = []
             valid_groups = self.common_grillage_element_z_group[namestring]
@@ -2680,8 +2704,7 @@ class Analysis:
                 fh.write("# Constructed on:{}\n".format(dt_string))
                 # write imports
                 fh.write(
-                    "import numpy as np\nimport math\nimport openseespy.opensees as ops"
-                    "\nimport vfo.vfo as opsplt\n"
+                    "import numpy as np\nimport math\nimport openseespy.opensees as ops\n"
                 )
 
         # Proxy handles dual-mode dispatch for analysis commands

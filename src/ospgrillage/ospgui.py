@@ -545,19 +545,21 @@ class BridgeInputWidget(QWidget):
         tab = QWidget()
         layout = QVBoxLayout()
         
-        # Interior Beams Group
-        int_beam_group = QGroupBox("External to Internal distance")
-        int_beam_form = QFormLayout()
-        
-        self.int_beam_spacing = QDoubleSpinBox()
-        self.int_beam_spacing.setRange(0.1, 10)
-        self.int_beam_spacing.setValue(2.5)
-        self.int_beam_spacing.setSingleStep(0.1)
-        self.int_beam_spacing.setSuffix(" m")
-        
-        int_beam_form.addRow("Spacing", self.int_beam_spacing)
-        int_beam_group.setLayout(int_beam_form)
-        
+        # Beam Spacing Group
+        beam_spacing_group = QGroupBox("Beam Spacing (optional)")
+        beam_spacing_form = QFormLayout()
+
+        self.beam_spacing_input = QLineEdit()
+        self.beam_spacing_input.setPlaceholderText("e.g. 1.0, 2.5, 2.5, 2.5, 1.0")
+        self.beam_spacing_input.setToolTip(
+            "Comma-separated list of transverse spacings (m). "
+            "First and last entries are edge overhangs; middle entries "
+            "are between-beam distances. Leave blank for uniform spacing."
+        )
+
+        beam_spacing_form.addRow("Spacings (m)", self.beam_spacing_input)
+        beam_spacing_group.setLayout(beam_spacing_form)
+
         # Edge Beams Group
         edge_beam_group = QGroupBox("Edge Beams")
         edge_beam_form = QFormLayout()
@@ -571,7 +573,7 @@ class BridgeInputWidget(QWidget):
         edge_beam_form.addRow("Edge Offset", self.edge_beam_offset)
         edge_beam_group.setLayout(edge_beam_form)
         
-        layout.addWidget(int_beam_group)
+        layout.addWidget(beam_spacing_group)
         layout.addWidget(edge_beam_group)
         layout.addStretch()
         tab.setLayout(layout)
@@ -971,10 +973,8 @@ class BridgeAnalysisGUI(QMainWindow):
             plot_or_save = f"""model.create_osp_model(pyfile=True)"""
         else:
             plot_or_save = f"""model.create_osp_model(pyfile=False)
-og.opsv.plot_model(az_el=(-90, 0),element_labels=0, node_labels=0)
-fig = og.plt.gcf()
-fig.set_size_inches(8, 8)
-og.plt.show()"""
+og.plot_model(model, figsize=(8, 8), show=True)
+"""
 
         ##Define material(Preset or custom)
         if self.bridge_params['materials']['preset_yes'] == False:
@@ -1001,16 +1001,23 @@ code="{self.bridge_params['materials']['code']}", grade="{self.bridge_params['ma
     mesh_radius={self.bridge_params['geometry']['radius']},
 )"""
         if self.bridge_params['geometry']['bridge_type'] == "Straight":
+            # Build optional beam_spacing kwarg from user input
+            _bs_text = self.input_panel.beam_spacing_input.text().strip()
+            if _bs_text:
+                _bs_line = f"\n    beam_spacing=[{_bs_text}],"
+            else:
+                _bs_line = (
+                    f"\n    num_long_grid={self.bridge_params['geometry']['long_beams']},"
+                    f"  # Number of grid lines"
+                    f"\n    edge_beam_dist={self.input_panel.edge_beam_offset.value()} * m,"
+                )
             create_model = f"""# Create grillage model
 model = og.create_grillage(
     bridge_name="{self.bridge_params['geometry']['name']}",
     long_dim={self.bridge_params['geometry']['length']} * m,
     width={self.bridge_params['geometry']['width']} * m,
-    skew=[{self.bridge_params['geometry']['left_skew_angle']},{self.bridge_params['geometry']['right_skew_angle']}],
-    num_long_grid={self.bridge_params['geometry']['long_beams']},  # Number of grid lines
+    skew=[{self.bridge_params['geometry']['left_skew_angle']},{self.bridge_params['geometry']['right_skew_angle']}],{_bs_line}
     num_trans_grid={self.bridge_params['geometry']['trans_beams']},
-    ext_to_int_dist = {self.input_panel.int_beam_spacing.value()} * m,
-    edge_beam_dist={self.input_panel.edge_beam_offset.value()} * m,
     mesh_type="{self.bridge_params['geometry']['mesh_type']}"  # ('Ortho' or 'Oblique')
 )"""
         if self.bridge_params['geometry']['bridge_type'] == "Multi-Span Straight":

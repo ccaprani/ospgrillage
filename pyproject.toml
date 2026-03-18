@@ -30,7 +30,6 @@ requires-python = ">=3.10"
 dependencies = [
     "openseespy>=3.2.2.6",
     "opsvis>=1.0",
-    "vfo>=0.0.6",
     "matplotlib",
     "numpy>=1.26",
     "pandas",
@@ -50,7 +49,8 @@ Tracker = "https://github.com/MonashSmartStructures/ospgrillage/issues"
 
 [project.optional-dependencies]
 test = ["pytest >= 6.2.2"]
-gui = ["PyQt5"]
+gui = ["PyQt5", "plotly >= 5.0"]
+legacy-viz = ["vfo>=0.0.6"]
 
 
 [tool.setuptools]

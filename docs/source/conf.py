@@ -118,9 +118,6 @@ pygments_style = "sphinx"
 # a list of builtin themes.
 #
 html_theme = "pydata_sphinx_theme"
-html_theme_path = [
-    "_themes",
-]
 
 html_theme_options = {
     "icon_links": [
@@ -147,7 +144,5 @@ html_context = {
 # The name of an image file (relative to this directory) to place at the top
 # of the sidebar.
 html_logo = "./images/ospgrillage_logo.png"
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["_static"]
+# No custom static files — the directory is omitted intentionally.
+# html_static_path = ["_static"]

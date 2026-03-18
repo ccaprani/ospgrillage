@@ -410,7 +410,6 @@ def run_beam_model_point_load(beam_element_bridge, shell_link_bridge):
     beam_bridge.create_osp_model()
     beam_bridge.add_load_case(mid_point_line_loadcase)
     beam_bridge.analyze()
-    og.opsv.plot_defo()
     result_beam = beam_bridge.get_results()
 
     return beam_bridge, result_beam, shell_bridge, result_shell

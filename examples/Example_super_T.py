@@ -70,9 +70,6 @@ w = 11.565 * m  # width
 n_l = 7  # number of longitudinal members
 n_t = 11  # number of transverse members
 edge_dist = 1.05 * m  # distance between edge beam and first exterior beam
-ext_to_int_dist = (
-    2.2775 * m
-)  # distance between first exterior beam and first interior beam
 angle = 0  # skew angle
 mesh_type = "Ortho"
 # a new feature for multi span
@@ -88,7 +85,6 @@ simple_grid = og.create_grillage(
     num_long_grid=n_l,
     num_trans_grid=n_t,
     edge_beam_dist=edge_dist,
-    ext_to_int_dist=ext_to_int_dist,
     mesh_type=mesh_type,
 )
 
@@ -106,8 +102,7 @@ simple_grid.create_osp_model(
     pyfile=False
 )  # pyfile will not (False) be generated for further analysis (should be create_osp?)
 # og.opsplt.plot_model("nodes") # plotting using Get_rendering
-og.opsv.plot_model(element_labels=0, az_el=(-90, 0))  # plotting using ops_vis
-og.plt.show()
+og.plot_model(simple_grid)
 
 # reference unit load for various load types
 P = 1 * kN
@@ -152,7 +147,7 @@ for p in p_list:
     point = og.create_load(
         loadtype="point", name="Point", point1=og.create_load_vertex(x=L / 2, z=p, p=P)
     )
-    test_points_load.add_load(load_obj=point)
+    test_points_load.add_load(point)
 
 # Create load case, add loads, and assign
 points_case = og.create_load_case(name=static_cases_names[1])
@@ -168,7 +163,7 @@ for p in p_list:
     point = og.create_load(
         loadtype="point", name="Point", point1=og.create_load_vertex(x=0, z=p, p=P)
     )
-    test_points_load.add_load(load_obj=point)
+    test_points_load.add_load(point)
 
 test_points_load.set_global_coord(og.Point(L / 2, 0, 0))  # shift from local to global
 
@@ -219,10 +214,10 @@ point4 = og.create_load(
 )
 
 # add load to Compound load
-two_axle_truck.add_load(load_obj=point1)
-two_axle_truck.add_load(load_obj=point2)
-two_axle_truck.add_load(load_obj=point3)
-two_axle_truck.add_load(load_obj=point4)
+two_axle_truck.add_load(point1)
+two_axle_truck.add_load(point2)
+two_axle_truck.add_load(point3)
+two_axle_truck.add_load(point4)
 
 # create path object in global coordinate system - centre line running of entire span
 # when local coord: the path describes where the moving load *origin* is to start and end

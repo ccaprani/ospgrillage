@@ -448,6 +448,12 @@ class Mesh:
             x_group_list = self.span_group_to_x_groups[span_group_key]
             x_group_list.append(x_count)
 
+            # Determine if this x position sits on an edge (start, end,
+            # or intermediate support).  Edge transverse elements are stored
+            # in edge_span_ele instead of trans_ele so that set_member() can
+            # assign separate section properties to start_edge / end_edge.
+            is_edge = (x_count == 0) or (x_inc in self.support_points)
+
             # create nodes and store in node spec
             for z_count, ref_point in enumerate(self.sweeping_nodes):
                 # offset x and y in all points in ref points
@@ -483,22 +489,31 @@ class Mesh:
                     # element list [element tag, node i, node j, x/z group]
                     if not self.beam_element_flag:
                         continue
-                    tag = self._get_geo_transform_tag(
-                        [assigned_node_tag[z_count - 1], assigned_node_tag[z_count]]
-                    )
-                    self.trans_ele.append(
-                        [
-                            self.element_counter,
+                    if is_edge:
+                        # Store in edge_span_ele so start_edge / end_edge
+                        # get their own member properties.
+                        self._assign_edge_trans_members(
                             assigned_node_tag[z_count - 1],
                             assigned_node_tag[z_count],
-                            x_count,
-                            tag,
-                        ]
-                    )
-                    self._store_ele_tag_respect_to_mesh_group(
-                        counter=self.element_counter, span_group=span_group_key
-                    )
-                    self.element_counter += 1
+                            self.global_edge_count,
+                        )
+                    else:
+                        tag = self._get_geo_transform_tag(
+                            [assigned_node_tag[z_count - 1], assigned_node_tag[z_count]]
+                        )
+                        self.trans_ele.append(
+                            [
+                                self.element_counter,
+                                assigned_node_tag[z_count - 1],
+                                assigned_node_tag[z_count],
+                                x_count,
+                                tag,
+                            ]
+                        )
+                        self._store_ele_tag_respect_to_mesh_group(
+                            counter=self.element_counter, span_group=span_group_key
+                        )
+                        self.element_counter += 1
 
             # create longitudinal ele by linking assigned nodes @ current step with assigned nodes from previous step
             if x_count == 0:
@@ -1707,6 +1722,27 @@ class EdgeControlLine:
         feature: str = "standard",
         **kwargs,
     ):
+        """
+        Initialise edge control line for mesh generation.
+
+        :param edge_ref_point: Reference point ``[x, y, z]`` for this edge.
+        :param width_z: Total transverse width of the bridge.
+        :param edge_width_a: Left edge-beam overhang distance.
+        :param edge_width_b: Right edge-beam overhang distance.
+        :param edge_angle: Skew angle (degrees) for this edge.
+        :param num_long_beam: Number of longitudinal node lines.
+        :param model_plane_y: Elevation of the grillage model plane.
+        :param feature: Reserved for future edge-line variants.
+
+        Keyword arguments
+        -----------------
+        beam_spacing : list of float, optional
+            Custom spacing of longitudinal members (global z-direction).
+            A list of distances where the first and last entries are
+            edge-beam overhangs and middle entries are between-main-beam
+            distances.  Supersedes *num_long_beam* and *edge_width_a/b*.
+            The old name ``beam_z_spacing`` is accepted but deprecated.
+        """
         # set variables
         self.edge_ref_point = edge_ref_point
         self.width_z = width_z
@@ -1720,9 +1756,16 @@ class EdgeControlLine:
         self.z_group_master_pair_list = []
         self.node_z_pair_list_value = []
 
-        self.custom_beam_z_spacing = kwargs.get(
-            "beam_z_spacing", None
-        )  # get a list of custom spacings
+        self.custom_beam_z_spacing = kwargs.get("beam_spacing", None)
+        if self.custom_beam_z_spacing is None:
+            self.custom_beam_z_spacing = kwargs.get("beam_z_spacing", None)
+            if self.custom_beam_z_spacing is not None:
+                import warnings
+                warnings.warn(
+                    "beam_z_spacing is deprecated; use beam_spacing instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
         # check validity of custom points
         if self.custom_beam_z_spacing and not isinstance(
             self.custom_beam_z_spacing, list
@@ -2544,7 +2587,7 @@ class ShellLinkMesh(Mesh):
                     for key, val in self.span_group_to_x_groups.items()
                     if self.node_spec[n2]["x_group"] in val
                 ]
-                if n1_span_group == n2_span_group:
+                if n1_span_group and n1_span_group == n2_span_group:
                     span_group_key = n1_span_group[0]
                     self._store_ele_tag_respect_to_mesh_group(
                         counter=self.element_counter, span_group=span_group_key

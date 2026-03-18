@@ -10,6 +10,68 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-03-16
+
+### Added
+- **Interactive Plotly backend** for `plot_bmd()`, `plot_sfd()`, and `plot_def()`:
+  pass `backend="plotly"` for 3D rotation, zoom, and hover in Jupyter notebooks
+  and browser windows. Plotly is bundled in the `gui` extra
+  (`pip install ospgrillage[gui]`).
+- **`LoadVertex`** namedtuple — the preferred name for the coordinate+magnitude
+  tuple that defines where a load acts and how much.  `LoadPoint` is retained as
+  a backwards-compatible alias.
+- `GrillageMember.section` and `.material` read-only properties.
+- `Mesh.orthogonal` attribute (was missing; code paths that checked it would
+  raise `AttributeError` on oblique meshes).
+- `beam_z_spacing` → `beam_width` deprecation shim in `create_grillage()`: the
+  old name now emits `DeprecationWarning` and maps correctly instead of being
+  silently ignored.
+- `Section(E=…)` / `Section(G=…)` now raise `ValueError` with a clear message
+  (elastic moduli belong on `Material`, not `Section`).
+- **Plotting keyword arguments** for all plotting functions (`plot_force`,
+  `plot_defo`, `plot_bmd`, `plot_sfd`, `plot_def`): `figsize`, `ax` (existing
+  matplotlib Axes), `scale`, `title`, `color`, `fill`, `alpha`, and `show`.
+  Plotly equivalents (`fig`, `figsize`, `scale`, `title`, `alpha`) are forwarded
+  through convenience wrappers.
+- **`plot_model()`** function for visualising grillage mesh geometry with
+  `backend="matplotlib"` (2-D plan view) and `backend="plotly"` (interactive 3-D).
+  Replaces `og.opsv.plot_model()` and `og.opsplt.plot_model()`.
+- 5 new Plotly tests, 8 new plotting-kwargs tests, 5 new plot_model tests, plus
+  tests for `beam_z_spacing`, `Section(E=)`, `GrillageMember` properties, and
+  `Mesh.orthogonal`.
+
+### Changed
+- **`vfo` is no longer a required dependency.** It is still accessible via
+  `og.opsplt` (with a deprecation warning) if installed, but `pip install
+  ospgrillage` no longer pulls it in. Use `og.plot_model()` instead.
+- `og.opsv` and `og.opsplt` re-exports now emit `DeprecationWarning`. Use
+  `og.plot_model()` for mesh visualisation.
+- `plot_deflection` renamed to `plot_def` (consistent with `plot_bmd` / `plot_sfd`).
+- Documentation restructured: `performing_analysis.md` split into
+  `defining_loads.md` (load types, compound loads, load cases, moving loads) and
+  the "Running analysis" section merged into `getting_results.md` (now titled
+  "Analysis and results").
+- All docs code examples updated to use `LoadVertex` instead of `LoadPoint`.
+- 15+ documentation content fixes: removed non-existent `set_material()` reference,
+  corrected `link_nodes_width` → `beam_width`, `NodalForce` → `NodeForces`,
+  `type=` → `loadtype=`, duplicate member assignments, missing Sphinx
+  cross-references, and sparse pages.
+- Added missing methods to API reference: `set_spring_support`,
+  `set_previous_state`, `store_state`, `parse_moving_load_cases`.
+
+### Fixed
+- GUI code generation: `set_member()` calls wrote `member=interior_main_beam`
+  (unquoted) instead of `member="interior_main_beam"`.
+- Removed stale `html_static_path` and `html_theme_path` from Sphinx `conf.py`
+  (referenced non-existent `_static/` and `_themes/` directories, causing build
+  warnings).
+
+### Deprecated
+- `LoadPoint` — use `LoadVertex` instead.  `LoadPoint` remains as an alias and
+  existing code is unaffected.
+
+---
+
 ## [0.4.1] — 2026-03-09
 
 ### Added

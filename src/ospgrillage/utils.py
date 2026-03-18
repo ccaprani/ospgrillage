@@ -607,7 +607,7 @@ def calculate_area_given_vertices(p_list):
     Parameters
     ----------
     p_list : list
-        List of point namedtuples (LoadPoint or Point) with .x, .z attributes,
+        List of point namedtuples (LoadVertex or Point) with .x, .z attributes,
         sorted counter-clockwise.
 
     Returns
@@ -615,7 +615,7 @@ def calculate_area_given_vertices(p_list):
     float
         Area of the polygon in the xz-plane.
     """
-    # input list of namedtuple LoadPoint or Point
+    # input list of namedtuple LoadVertex or Point
     # note: p_list must have been sorted in counter clockwise via sort_vertices function
     # (this is called prior to this function)
     x_list = []

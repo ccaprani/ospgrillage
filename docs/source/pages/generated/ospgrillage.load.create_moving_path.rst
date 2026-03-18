@@ -1,0 +1,6 @@
+﻿create\_moving\_path
+====================
+
+.. currentmodule:: ospgrillage.load
+
+.. autofunction:: create_moving_path
