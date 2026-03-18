@@ -338,6 +338,36 @@ def _extract_defo_data(ospgrillage_obj, result_obj, member, component="y",
 # ---------------------------------------------------------------------------
 # Plotly 3D figure builders
 # ---------------------------------------------------------------------------
+def _spatial_aspect_ratio(fig):
+    """Compute a Plotly aspectratio that keeps the x–y (plan) axes
+    proportional while letting the z (value) axis scale freely.
+
+    Scans all ``Scatter3d`` traces already added to *fig* and returns a
+    ``dict(x=…, y=…, z=1)`` where x and y reflect the true span-to-width
+    ratio of the bridge, and z is normalised to 1 so Plotly auto-scales
+    the value axis to fill the available space.
+    """
+    all_x, all_y = [], []
+    for trace in fig.data:
+        if hasattr(trace, "x") and trace.x is not None:
+            all_x.extend([v for v in trace.x if v is not None])
+        if hasattr(trace, "y") and trace.y is not None:
+            all_y.extend([v for v in trace.y if v is not None])
+
+    if not all_x or not all_y:
+        return dict(x=1, y=1, z=1)
+
+    dx = max(all_x) - min(all_x)
+    dy = max(all_y) - min(all_y)
+
+    if dx == 0 and dy == 0:
+        return dict(x=1, y=1, z=1)
+
+    # Normalise so the larger spatial dimension = 1
+    dmax = max(dx, dy, 1e-12)
+    return dict(x=dx / dmax, y=dy / dmax, z=1)
+
+
 def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
                      loadcase=None, comp_label=None, *,
                      fig=None, figsize=None, scale=1.0, title=_AUTO,
@@ -432,11 +462,16 @@ def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
             ))
             trace_idx += 1
 
+    # Compute spatial data ranges so the plan-view (x vs z) axes are
+    # proportional while the force axis scales freely.
+    aspect = _spatial_aspect_ratio(fig)
     layout_kw = dict(
         scene=dict(
             xaxis_title="x (m)",
             yaxis_title="z (m)",
             zaxis_title=label,
+            aspectmode="manual",
+            aspectratio=aspect,
         ),
         legend_title="Member",
     )
@@ -563,11 +598,14 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
             ))
             trace_idx += 1
 
+    aspect = _spatial_aspect_ratio(fig)
     layout_kw = dict(
         scene=dict(
             xaxis_title="x (m)",
             yaxis_title="z (m)",
             zaxis_title=f"displacement ({component})",
+            aspectmode="manual",
+            aspectratio=aspect,
         ),
         legend_title="Member",
     )
