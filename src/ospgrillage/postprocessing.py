@@ -437,6 +437,7 @@ def _plotly_3d_force(ospgrillage_obj, result_obj, component, members,
             xaxis_title="x (m)",
             yaxis_title="z (m)",
             zaxis_title=label,
+            aspectmode="data",
         ),
         legend_title="Member",
     )
@@ -505,8 +506,8 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
                 all_x, all_y, all_v = [], [], []
                 for ele in eletags:
                     en = ele_node_da.sel(Element=ele).values
-                    for nd in en:
-                        nd = int(nd)
+                    node_tags = en.flatten().astype(int).tolist()
+                    for nd in node_tags:
                         c = nodes_dict[nd]["coordinate"]
                         if loadcase:
                             d = float(result_obj.displacements.sel(
@@ -568,6 +569,7 @@ def _plotly_3d_defo(ospgrillage_obj, result_obj, members, component="y",
             xaxis_title="x (m)",
             yaxis_title="z (m)",
             zaxis_title=f"displacement ({component})",
+            aspectmode="data",
         ),
         legend_title="Member",
     )
