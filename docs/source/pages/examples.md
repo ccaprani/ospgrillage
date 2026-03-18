@@ -9,7 +9,7 @@ or viewed as rendered HTML.
 ```{toctree}
 :maxdepth: 1
 
-../notebooks/super_t_analysis_workflow
+../notebooks/super_t_tutorial
 ../notebooks/mesh_showcase
 ../notebooks/multi_span
 ../notebooks/curve_mesh

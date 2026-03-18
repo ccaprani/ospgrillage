@@ -364,7 +364,7 @@ API.  The GUI auto-detects plotly and uses it by default when available.
 
 For complete worked examples, see:
 
-- {doc}`Super-T bridge tutorial <../notebooks/super_t_analysis_workflow>` — end-to-end
+- {doc}`Super-T bridge tutorial <../notebooks/super_t_tutorial>` — end-to-end
   model creation, loading, analysis, and results extraction.
 - {doc}`Advanced results processing <../notebooks/advanced_results>` — xarray selection,
   load combinations, envelopes, and custom post-processing.
