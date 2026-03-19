@@ -1,12 +1,10 @@
 # User Guide
 
 ```{toctree}
-:maxdepth: 1
+:maxdepth: 2
 
 model_templates
-mesh_features
-performing_analysis
-getting_results
-examples
-ospgui
+defining_loads
+running_analysis
+working_with_results
 ```

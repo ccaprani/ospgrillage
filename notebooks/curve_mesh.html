@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Curve Mesh &#8212; ospgrillage 0.4.1 documentation</title>
+    <title>Curve Mesh &#8212; ospgrillage 0.5.1 documentation</title>
   
   
   
@@ -39,7 +39,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=c87aa342"></script>
+    <script src="../_static/documentation_options.js?v=b9afe91b"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
@@ -48,11 +48,11 @@
     <script>DOCUMENTATION_OPTIONS.pagename = 'notebooks/curve_mesh';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Performing analysis" href="../pages/performing_analysis.html" />
+    <link rel="next" title="GUI" href="../pages/ospgui.html" />
     <link rel="prev" title="Multi - span feature" href="multi_span.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.4.1" />
+  <meta name="docsearch:version" content="0.5.1" />
   </head>
   
   
@@ -118,8 +118,8 @@
       
     
     
-    <img src="../_static/ospgrillage_logo.png" class="logo__image only-light" alt="ospgrillage 0.4.1 documentation - Home"/>
-    <img src="../_static/ospgrillage_logo.png" class="logo__image only-dark pst-js-only" alt="ospgrillage 0.4.1 documentation - Home"/>
+    <img src="../_static/ospgrillage_logo.png" class="logo__image only-light" alt="ospgrillage 0.5.1 documentation - Home"/>
+    <img src="../_static/ospgrillage_logo.png" class="logo__image only-dark pst-js-only" alt="ospgrillage 0.5.1 documentation - Home"/>
   
   
 </a></div>
@@ -141,9 +141,23 @@
 </li>
 
 
-<li class="nav-item current active">
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="../pages/user_guide.html">
     User Guide
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../pages/tutorials.html">
+    Tutorials
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../pages/ospgui.html">
+    GUI
   </a>
 </li>
 
@@ -154,13 +168,23 @@
   </a>
 </li>
 
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../pages/additional_resources.html">
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../pages/additional_resources.html">
     Additional Resources
   </a>
 </li>
 
+                </ul>
+            </li>
+            
   </ul>
 </nav></div>
       
@@ -269,9 +293,23 @@
 </li>
 
 
-<li class="nav-item current active">
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="../pages/user_guide.html">
     User Guide
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../pages/tutorials.html">
+    Tutorials
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../pages/ospgui.html">
+    GUI
   </a>
 </li>
 
@@ -345,23 +383,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="../pages/model_templates.html">Model types available</a></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="../pages/mesh_features.html">Mesh features</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="mesh_showcase.html">Mesh features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="multi_span.html">Multi - span feature</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Curve Mesh</a></li>
-</ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="../pages/performing_analysis.html">Performing analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../pages/getting_results.html">Getting Results</a></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="../pages/examples.html">Examples</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="super_t_analysis_workflow.html">Standard workflow template - Super-T girder bridge</a></li>
-<li class="toctree-l2"><a class="reference internal" href="mesh_showcase.html">Mesh features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="multi_span.html">Multi - span feature</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Curve Mesh</a></li>
-</ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="../pages/ospgui.html">GUI — ospgui</a></li>
+<li class="toctree-l1"><a class="reference internal" href="super_t_tutorial.html">Super-T Bridge Grillage Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_results.html">Advanced Results Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mesh_showcase.html">Mesh features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="multi_span.html">Multi - span feature</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Curve Mesh</a></li>
 </ul>
 </div>
 </nav></div>
@@ -403,10 +429,7 @@
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="../pages/user_guide.html" class="nav-link">User Guide</a></li>
-    
-    
-    <li class="breadcrumb-item"><a href="../pages/mesh_features.html" class="nav-link">Mesh features</a></li>
+    <li class="breadcrumb-item"><a href="../pages/tutorials.html" class="nav-link">Tutorials</a></li>
     
     <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Curve Mesh</span></li>
   </ul>
@@ -429,16 +452,16 @@
 <h1>Curve Mesh<a class="headerlink" href="#Curve-Mesh" title="Link to this heading">#</a></h1>
 <p><code class="docutils literal notranslate"><span class="pre">ospgrillage</span></code> allows curve mesh to be implemented. In this example we will explore the steps to define a curve mesh. In short, curve mesh are defined by setting defining a radius, <code class="docutils literal notranslate"><span class="pre">R</span></code> parameter. <code class="docutils literal notranslate"><span class="pre">ospgrillage</span></code> uses the radius along with the fundamental inputs (span, <code class="docutils literal notranslate"><span class="pre">L</span></code> and width ,<code class="docutils literal notranslate"><span class="pre">w</span></code> etc) to determine the curvature of the mesh (Figure 1).</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[17]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[1]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">IPython</span><span class="w"> </span><span class="kn">import</span> <span class="n">display</span>  <span class="c1"># to display images in this notebook</span>
-<span class="n">display</span><span class="o">.</span><span class="n">Image</span><span class="p">(</span><span class="s2">&quot;../images/curve_mesh_preview.PNG&quot;</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">800</span><span class="p">)</span>
+<span class="n">display</span><span class="o">.</span><span class="n">Image</span><span class="p">(</span><span class="s2">&quot;../images/curve_mesh_preview.png&quot;</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">800</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[17]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[1]:
 </pre></div>
 </div>
 <div class="output_area docutils container">
@@ -447,7 +470,7 @@
 </div>
 <p>In this example, we create a single span bridge grillage model with span and width of 10 m and 7 m respectively. For demonstration purposes, the curve radius shall be 20 m. First, we begin with the necessary imports.</p>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[1]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[2]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -458,7 +481,7 @@
 </div>
 <p>Then, we define the parameters of the grillage.</p>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[2]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[3]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="c1"># Adopted units: N and m</span>
@@ -486,7 +509,7 @@
 </div>
 <p>Curve mesh requires the definition of radius.</p>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[19]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">mesh_radius</span> <span class="o">=</span> <span class="mi">20</span> <span class="o">*</span> <span class="n">m</span>
@@ -495,7 +518,7 @@
 </div>
 <p>Define the materials and sections of the grillage similar to the standard workflow.</p>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">concrete</span> <span class="o">=</span> <span class="n">og</span><span class="o">.</span><span class="n">create_material</span><span class="p">(</span><span class="n">material</span><span class="o">=</span><span class="s2">&quot;concrete&quot;</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="s2">&quot;AS5100-2017&quot;</span><span class="p">,</span> <span class="n">grade</span><span class="o">=</span><span class="s2">&quot;65MPa&quot;</span><span class="p">)</span>
@@ -551,7 +574,7 @@
 </div>
 <p>At the <code class="docutils literal notranslate"><span class="pre">create_grillage</span></code> step, pass in the mesh radius to <code class="docutils literal notranslate"><span class="pre">mesh_radius=</span></code> keyword argument.</p>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[6]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><br/><span></span><span class="n">example_bridge</span> <span class="o">=</span> <span class="n">og</span><span class="o">.</span><span class="n">create_grillage</span><span class="p">(</span>
@@ -569,7 +592,7 @@
 </div>
 <p>Finally, we set the members accordingly, create the model and plot.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[7]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">example_bridge</span><span class="o">.</span><span class="n">set_member</span><span class="p">(</span><span class="n">longitudinal_beam</span><span class="p">,</span> <span class="n">member</span><span class="o">=</span><span class="s2">&quot;interior_main_beam&quot;</span><span class="p">)</span>
@@ -583,34 +606,16 @@
 <span class="n">example_bridge</span><span class="o">.</span><span class="n">create_osp_model</span><span class="p">(</span>
     <span class="n">pyfile</span><span class="o">=</span><span class="kc">False</span>
 <span class="p">)</span>
-<span class="n">og</span><span class="o">.</span><span class="n">opsplt</span><span class="o">.</span><span class="n">plot_model</span><span class="p">(</span><span class="s2">&quot;nodes&quot;</span><span class="p">)</span>
+<span class="n">og</span><span class="o">.</span><span class="n">plot_model</span><span class="p">(</span><span class="n">example_bridge</span><span class="p">,</span> <span class="n">show_nodes</span><span class="o">=</span><span class="kc">True</span><span class="p">);</span>
 </pre></div>
-</div>
-</div>
-<div class="nboutput docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area docutils container">
-<div class="highlight"><pre>
-No Model_ODB specified, trying to get data from the active model.
-3D model
-</pre></div></div>
-</div>
-<div class="nboutput docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area docutils container">
-<img alt="../_images/notebooks_curve_mesh_14_1.png" src="../_images/notebooks_curve_mesh_14_1.png" />
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
-</pre></div>
+<div class="prompt empty docutils container">
 </div>
 <div class="output_area docutils container">
-<div class="highlight"><pre>
-(&lt;Figure size 432x288 with 1 Axes&gt;, &lt;Axes3DSubplot:xlabel=&#39;X&#39;, ylabel=&#39;Y&#39;&gt;)
-</pre></div></div>
+<img alt="../_images/notebooks_curve_mesh_14_0.png" src="../_images/notebooks_curve_mesh_14_0.png" />
+</div>
 </div>
 </section>
 
@@ -634,11 +639,11 @@ No Model_ODB specified, trying to get data from the active model.
       </div>
     </a>
     <a class="right-next"
-       href="../pages/performing_analysis.html"
+       href="../pages/ospgui.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Performing analysis</p>
+        <p class="prev-next-title">GUI</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
