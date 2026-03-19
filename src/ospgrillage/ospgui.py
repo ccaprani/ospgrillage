@@ -1344,7 +1344,7 @@ from math import *
         """Handle Run Analysis button click"""
         try:
             # First apply any changes
-            # self.apply_changes()
+            self.apply_changes()
 
             # Update status bar
             self.statusbar.showMessage("Running analysis...")
@@ -1409,7 +1409,18 @@ from math import *
                             margin=dict(r=200),
                         )
                         if _WEBENGINE_AVAILABLE:
-                            self.viz_tab.setHtml(fig.to_html(include_plotlyjs=True))
+                            # Write to temp file and load via URL to avoid
+                            # QWebEngineView's 2 MB setHtml() size limit.
+                            import tempfile
+                            from PyQt5.QtCore import QUrl
+
+                            tmp = tempfile.NamedTemporaryFile(
+                                suffix=".html", delete=False, mode="w",
+                                encoding="utf-8",
+                            )
+                            tmp.write(fig.to_html(include_plotlyjs=True))
+                            tmp.close()
+                            self.viz_tab.setUrl(QUrl.fromLocalFile(tmp.name))
                             self.right_panel.setCurrentWidget(self.viz_tab)
                         else:
                             # Open interactive 3D view in system browser
