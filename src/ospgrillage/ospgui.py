@@ -35,8 +35,17 @@ try:
     from PyQt5.QtGui import QIcon
 
     _PYQT5_AVAILABLE = True
+
+    try:
+        from PyQt5.QtWebEngineWidgets import QWebEngineView
+
+        _WEBENGINE_AVAILABLE = True
+    except ImportError:
+        _WEBENGINE_AVAILABLE = False
+
 except ModuleNotFoundError:
     _PYQT5_AVAILABLE = False
+    _WEBENGINE_AVAILABLE = False
 
     # Stub base classes so the class definitions below don't raise NameError at
     # import time.  Actual functionality is blocked by the check in main().
@@ -116,12 +125,12 @@ class BridgeInputWidget(QWidget):
 
         self.left_skew_angle = QDoubleSpinBox()
         self.left_skew_angle.setRange(-89, 89)
-        self.left_skew_angle.setValue(0)
+        self.left_skew_angle.setValue(5)
         self.left_skew_angle.setSuffix(" °")
 
         self.right_skew_angle = QDoubleSpinBox()
         self.right_skew_angle.setRange(-89, 89)
-        self.right_skew_angle.setValue(0)
+        self.right_skew_angle.setValue(5)
         self.right_skew_angle.setSuffix(" °")
 
         basic_form.addRow("Bridge Name", self.bridge_name)
@@ -140,14 +149,14 @@ class BridgeInputWidget(QWidget):
 
         self.long_beams = QSpinBox()
         self.long_beams.setRange(2, 20)
-        self.long_beams.setValue(5)
+        self.long_beams.setValue(7)
 
         self.trans_beams = QSpinBox()
         self.trans_beams.setRange(2, 100)
         self.trans_beams.setValue(10)
 
         self.mesh_type = QComboBox()
-        self.mesh_type.addItems(["Ortho", "Oblique"])
+        self.mesh_type.addItems(["Oblique", "Ortho"])
 
         self.opensees_file = QRadioButton("Opensees Command File")
         self.visualize = QRadioButton("Visualization")
@@ -256,6 +265,7 @@ class BridgeInputWidget(QWidget):
         self.update_grade_fields(
             "AS5100-2017", "Concrete"
         )  # Initialize with concrete options
+        self.grade_box.setCurrentText("65MPa")
 
         # Code of Material
         self.material_fc = QComboBox()
@@ -697,7 +707,7 @@ class BridgeAnalysisGUI(QMainWindow):
 
     * **Left** — :class:`ospgrillage.ospgui.BridgeInputWidget` with tabbed input forms.
     * **Centre** — live code view showing the generated Python source.
-    * **Right** — 3-D mesh preview rendered via *vfo*.
+    * **Right** — interactive 3-D mesh preview rendered via *Plotly*.
 
     Typical usage is through the ``ospgui`` console entry-point or
     programmatically::
@@ -890,9 +900,21 @@ class BridgeAnalysisGUI(QMainWindow):
         # Right panel - Visualization and code tabs
         self.right_panel = QTabWidget()
 
-        # Visualization tab
-        ##        self.viz_tab = QLabel("3D Visualization will appear here")
-        ##        self.viz_tab.setAlignment(Qt.AlignCenter)
+        # Visualization tab (interactive 3D via Plotly in a web view)
+        if _WEBENGINE_AVAILABLE:
+            self.viz_tab = QWebEngineView()
+            self.viz_tab.setHtml(
+                "<html><body style='display:flex;align-items:center;"
+                "justify-content:center;height:100vh;font-family:sans-serif;"
+                "color:#888'><p>Click <b>Create Geometry</b> to see "
+                "the 3-D model here.</p></body></html>"
+            )
+        else:
+            self.viz_tab = QLabel(
+                "Install PyQtWebEngine for interactive 3D visualization:\n"
+                "  pip install PyQtWebEngine"
+            )
+            self.viz_tab.setAlignment(Qt.AlignCenter)
 
         # Code view tab
         self.code_tab = QTextEdit()
@@ -900,8 +922,8 @@ class BridgeAnalysisGUI(QMainWindow):
         self.code_tab.setLineWrapMode(QTextEdit.NoWrap)
 
         # Add tabs to right panel
-        ##        self.right_panel.addTab(self.viz_tab, "Visualization")
         self.right_panel.addTab(self.code_tab, "Code View")
+        self.right_panel.addTab(self.viz_tab, "3D View")
 
         # Add panels to main layout
         main_layout.addWidget(self.input_panel, stretch=1)
@@ -1355,41 +1377,54 @@ from math import *
             # Execute the generated ospgrillage code shown in the code view panel.
             # current_code is always the output of the GUI's own code-generation
             # methods (generate_code / apply_changes), never raw user text input.
+            #
+            # Suppress matplotlib plt.show() during exec so the generated code
+            # doesn't pop up a separate window.  The generated code still
+            # contains og.plot_model(...) so it works when saved and run
+            # standalone.
+            import matplotlib.pyplot as _plt
+
+            _orig_show = _plt.show
+            _plt.show = lambda *a, **kw: None
             try:
                 exec(current_code, namespace)  # noqa: S102
+            finally:
+                _plt.show = _orig_show
 
-                # Update visualization tab with results
-                result_text = "Analysis completed successfully!\n\n"
-
-                # Add printed output if any
-                if "print" in output:
-                    result_text += "Output:\n" + "\n".join(output["print"]) + "\n\n"
-
-                # Add basic result information
-                if "results" in namespace:
-                    results = namespace["results"]
-                    result_text += f"Results summary:\n"
-                    result_text += f"- Number of nodes: {len(results.node)}\n"
-                    result_text += f"- Number of elements: {len(results.element)}\n"
-
-                    if "displacements" in namespace:
-                        max_disp = namespace["displacements"].max().values
-                        result_text += f"- Maximum displacement: {max_disp:.6f} m\n"
-
-                    if "forces" in namespace:
-                        max_moment = (
-                            namespace["forces"].sel(component="Mz").max().values
+            try:
+                # Render interactive 3D model
+                if "model" in namespace and namespace["model"] is not None:
+                    try:
+                        fig = og.plot_model(
+                            namespace["model"], backend="plotly", show=False
                         )
-                        result_text += (
-                            f"- Maximum bending moment: {max_moment:.2f} kN·m"
+                        # Move legends outside the plot area
+                        fig.update_layout(
+                            legend=dict(
+                                x=1.02,
+                                y=1,
+                                xanchor="left",
+                                yanchor="top",
+                            ),
+                            margin=dict(r=200),
                         )
+                        if _WEBENGINE_AVAILABLE:
+                            self.viz_tab.setHtml(
+                                fig.to_html(include_plotlyjs="cdn")
+                            )
+                            self.right_panel.setCurrentWidget(self.viz_tab)
+                        else:
+                            # Open interactive 3D view in system browser
+                            fig.show()
+                    except Exception as viz_err:
+                        logger.warning("Plotly visualization failed: %s", viz_err)
 
-            ##                self.viz_tab.setText(result_text)
-            ##                self.statusbar.showMessage("Analysis completed successfully", 5000)
+                self.statusbar.showMessage(
+                    "Geometry created successfully", 5000
+                )
 
             except Exception as e:
                 error_msg = f"Error during analysis:\n{str(e)}"
-                ##                self.viz_tab.setText(error_msg)
                 self.statusbar.showMessage("Analysis failed", 5000)
                 QMessageBox.critical(self, "Analysis Error", error_msg)
 
