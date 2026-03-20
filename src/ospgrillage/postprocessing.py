@@ -1183,6 +1183,10 @@ def _plotly_3d_shell_contour(
             colorbar=dict(title=component) if show_colorbar else None,
             showscale=show_colorbar,
             opacity=opacity,
+            flatshading=True,
+            lighting=dict(
+                ambient=1.0, diffuse=0.0, specular=0.0, fresnel=0.0,
+            ),
             name=f"shell_{component}",
             hovertemplate=f"{component}: %{{intensity:.3g}}<extra></extra>",
         )
