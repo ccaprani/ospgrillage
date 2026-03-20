@@ -878,29 +878,29 @@ def _plotly_3d_force(
     # Compute spatial data ranges so the plan-view (x vs z) axes are
     # proportional while the force axis scales freely.
     aspect = _spatial_aspect_ratio(fig)
-    # Layout — only apply when we created the figure (not composing onto
-    # an existing one, e.g. an SRF contour figure).
+    _no_bg = dict(showbackground=False)
+    layout_kw = dict(
+        scene=dict(
+            xaxis=dict(title="x (m)", **_no_bg),
+            yaxis=dict(title="z (m)", **_no_bg),
+            zaxis=dict(title=label, **_no_bg),
+            aspectmode="manual",
+            aspectratio=aspect,
+        ),
+        legend_title="Member",
+    )
     if new_fig:
-        _no_bg = dict(showbackground=False)
-        layout_kw = dict(
-            scene=dict(
-                xaxis=dict(title="x (m)", **_no_bg),
-                yaxis=dict(title="z (m)", **_no_bg),
-                zaxis=dict(title=label, **_no_bg),
-                aspectmode="manual",
-                aspectratio=aspect,
-            ),
-            legend_title="Member",
-        )
+        # Only set title when we created the figure (preserve SRF title
+        # when composing onto an existing contour figure).
         if title is _AUTO:
             layout_kw["title"] = f"{label} Diagram"
         elif title is not None:
             layout_kw["title"] = title
-        if figsize is not None:
-            layout_kw["width"] = figsize[0] * 100
-            layout_kw["height"] = figsize[1] * 100
+    if figsize is not None:
+        layout_kw["width"] = figsize[0] * 100
+        layout_kw["height"] = figsize[1] * 100
 
-        fig.update_layout(**layout_kw)
+    fig.update_layout(**layout_kw)
     return fig
 
 
