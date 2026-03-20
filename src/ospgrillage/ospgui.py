@@ -826,7 +826,13 @@ class ResultsControlWidget(QWidget):
 
     def set_shell_contour_enabled(self, enabled):
         """Enable or disable shell contour controls based on active tab."""
-        self.contour_group.setEnabled(enabled)
+        self.contour_component_combo.setEnabled(enabled)
+        self.contour_colorscale_combo.setEnabled(enabled)
+        self.contour_overlay_combo.setEnabled(enabled)
+        # Visual feedback: dim the title when disabled
+        self.contour_group.setStyleSheet(
+            "" if enabled else "QGroupBox { color: #999; }"
+        )
 
 
 class BridgeAnalysisGUI(QMainWindow):
