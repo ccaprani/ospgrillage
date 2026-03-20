@@ -149,23 +149,31 @@ def _import_plotly():
 
 
 def _show_plotly_fig(fig):
-    """Display a Plotly figure with output compatible with nbsphinx/Sphinx.
+    """Display a Plotly figure.
 
-    In a Jupyter/IPython session this emits ``text/html`` using
+    In a Jupyter *notebook* session this emits ``text/html`` using
     ``fig.to_html(include_plotlyjs="cdn")``.  The ``text/html`` MIME type
     is understood by *nbsphinx* so the interactive 3-D plot survives the
     Sphinx build and renders with full rotate/zoom/hover on the
     documentation pages (e.g. GitHub Pages).
 
-    Outside IPython the function falls back to ``fig.show()`` which opens
-    the system browser.
+    In an IPython terminal (no notebook) or outside IPython the function
+    falls back to ``fig.show()`` which opens the system browser.
     """
     try:
-        from IPython.display import display, HTML
+        from IPython import get_ipython
 
-        display(HTML(fig.to_html(include_plotlyjs="cdn", full_html=False)))
+        shell = get_ipython()
+        if shell is not None and shell.__class__.__name__ == "ZMQInteractiveShell":
+            # Jupyter notebook — use HTML display for nbsphinx compat
+            from IPython.display import display, HTML
+
+            display(HTML(fig.to_html(include_plotlyjs="cdn", full_html=False)))
+            return
     except ImportError:
-        fig.show()
+        pass
+    # IPython terminal or plain Python — open in browser
+    fig.show()
 
 
 def create_envelope(**kwargs):
