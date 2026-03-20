@@ -713,7 +713,8 @@ def _plotly_3d_force(
     :rtype: :class:`plotly.graph_objects.Figure`
     """
     go = _import_plotly()
-    if fig is None:
+    new_fig = fig is None
+    if new_fig:
         fig = go.Figure()
     label = comp_label or component
 
@@ -877,26 +878,29 @@ def _plotly_3d_force(
     # Compute spatial data ranges so the plan-view (x vs z) axes are
     # proportional while the force axis scales freely.
     aspect = _spatial_aspect_ratio(fig)
-    _no_bg = dict(showbackground=False)
-    layout_kw = dict(
-        scene=dict(
-            xaxis=dict(title="x (m)", **_no_bg),
-            yaxis=dict(title="z (m)", **_no_bg),
-            zaxis=dict(title=label, **_no_bg),
-            aspectmode="manual",
-            aspectratio=aspect,
-        ),
-        legend_title="Member",
-    )
-    if title is _AUTO:
-        layout_kw["title"] = f"{label} Diagram"
-    elif title is not None:
-        layout_kw["title"] = title
-    if figsize is not None:
-        layout_kw["width"] = figsize[0] * 100
-        layout_kw["height"] = figsize[1] * 100
+    # Layout — only apply when we created the figure (not composing onto
+    # an existing one, e.g. an SRF contour figure).
+    if new_fig:
+        _no_bg = dict(showbackground=False)
+        layout_kw = dict(
+            scene=dict(
+                xaxis=dict(title="x (m)", **_no_bg),
+                yaxis=dict(title="z (m)", **_no_bg),
+                zaxis=dict(title=label, **_no_bg),
+                aspectmode="manual",
+                aspectratio=aspect,
+            ),
+            legend_title="Member",
+        )
+        if title is _AUTO:
+            layout_kw["title"] = f"{label} Diagram"
+        elif title is not None:
+            layout_kw["title"] = title
+        if figsize is not None:
+            layout_kw["width"] = figsize[0] * 100
+            layout_kw["height"] = figsize[1] * 100
 
-    fig.update_layout(**layout_kw)
+        fig.update_layout(**layout_kw)
     return fig
 
 
@@ -1180,7 +1184,7 @@ def _plotly_3d_shell_contour(
             k=k_idx,
             intensity=intensity,
             colorscale=colorscale,
-            colorbar=dict(title=component) if show_colorbar else None,
+            colorbar=dict(title=component, x=-0.05, xanchor="right") if show_colorbar else None,
             showscale=show_colorbar,
             opacity=opacity,
             flatshading=True,
