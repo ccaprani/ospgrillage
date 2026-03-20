@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from PyQt5.QtWidgets import (
+    from PyQt6.QtWidgets import (
         QApplication,
         QMainWindow,
         QWidget,
@@ -23,7 +23,6 @@ try:
         QScrollArea,
         QMenuBar,
         QToolBar,
-        QAction,
         QStatusBar,
         QTextEdit,
         QCheckBox,
@@ -31,20 +30,20 @@ try:
         QRadioButton,
         QFileDialog,
     )
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtGui import QIcon
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QAction, QIcon
 
-    _PYQT5_AVAILABLE = True
+    _PYQT6_AVAILABLE = True
 
     try:
-        from PyQt5.QtWebEngineWidgets import QWebEngineView
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
 
         _WEBENGINE_AVAILABLE = True
     except ImportError:
         _WEBENGINE_AVAILABLE = False
 
 except ModuleNotFoundError:
-    _PYQT5_AVAILABLE = False
+    _PYQT6_AVAILABLE = False
     _WEBENGINE_AVAILABLE = False
 
     # Stub base classes so the class definitions below don't raise NameError at
@@ -67,7 +66,7 @@ class BridgeInputWidget(QWidget):
     and is not intended to be instantiated directly by users.
 
     .. note::
-        Requires PyQt5.  Install with ``pip install "ospgrillage[gui]"``.
+        Requires PyQt6.  Install with ``pip install "ospgrillage[gui]"``.
     """
 
     def __init__(self):
@@ -716,7 +715,7 @@ class BridgeAnalysisGUI(QMainWindow):
         main()
 
     .. note::
-        Requires PyQt5.  Install with ``pip install "ospgrillage[gui]"``.
+        Requires PyQt6.  Install with ``pip install "ospgrillage[gui]"``.
     """
 
     def __init__(self):
@@ -914,7 +913,7 @@ class BridgeAnalysisGUI(QMainWindow):
                 "Install PyQtWebEngine for interactive 3D visualization:\n"
                 "  pip install PyQtWebEngine"
             )
-            self.viz_tab.setAlignment(Qt.AlignCenter)
+            self.viz_tab.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Code view tab
         self.code_tab = QTextEdit()
@@ -1344,7 +1343,7 @@ from math import *
         """Handle Run Analysis button click"""
         try:
             # First apply any changes
-            # self.apply_changes()
+            self.apply_changes()
 
             # Update status bar
             self.statusbar.showMessage("Running analysis...")
@@ -1409,7 +1408,18 @@ from math import *
                             margin=dict(r=200),
                         )
                         if _WEBENGINE_AVAILABLE:
-                            self.viz_tab.setHtml(fig.to_html(include_plotlyjs=True))
+                            # Write to temp file and load via URL to avoid
+                            # QWebEngineView's 2 MB setHtml() size limit.
+                            import tempfile
+                            from PyQt6.QtCore import QUrl
+
+                            tmp = tempfile.NamedTemporaryFile(
+                                suffix=".html", delete=False, mode="w",
+                                encoding="utf-8",
+                            )
+                            tmp.write(fig.to_html(include_plotlyjs=True))
+                            tmp.close()
+                            self.viz_tab.setUrl(QUrl.fromLocalFile(tmp.name))
                             self.right_panel.setCurrentWidget(self.viz_tab)
                         else:
                             # Open interactive 3D view in system browser
@@ -1432,30 +1442,30 @@ from math import *
 def main():
     """Launch the *ospgui* graphical interface.
 
-    Entry point for the ``ospgui`` console script.  Checks that PyQt5 is
+    Entry point for the ``ospgui`` console script.  Checks that PyQt6 is
     available and exits with a helpful message if not, otherwise starts the
     Qt application and opens :class:`BridgeAnalysisGUI`.
 
     Raises
     ------
     SystemExit
-        With code 1 if PyQt5 is not installed; with the Qt application's
+        With code 1 if PyQt6 is not installed; with the Qt application's
         return code on normal exit.
     """
-    if not _PYQT5_AVAILABLE:
+    if not _PYQT6_AVAILABLE:
         print(
-            "ospgui requires PyQt5, which is not installed in this environment.\n"
+            "ospgui requires PyQt6, which is not installed in this environment.\n"
             "Install it with:\n\n"
             "    pip install ospgrillage[gui]\n\n"
             "or:\n\n"
-            "    pip install PyQt5",
+            "    pip install PyQt6",
             file=sys.stderr,
         )
         sys.exit(1)
     app = QApplication(sys.argv)
     window = BridgeAnalysisGUI()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
