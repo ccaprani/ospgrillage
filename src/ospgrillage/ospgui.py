@@ -1710,7 +1710,7 @@ from math import *
                 # Shell contour — reads directly from Dataset
                 comp = self.results_panel.contour_component_combo.currentText()
                 cs = self.results_panel.contour_colorscale_combo.currentText()
-                fig = og.plot_shell_contour(
+                fig = og.plot_srf(
                     self._results,
                     component=comp,
                     loadcase=loadcase,

@@ -919,29 +919,29 @@ def test_triangulate_shell_mesh():
     assert len(tag_map) == 4
 
 
-def test_plot_shell_contour_plotly(shell_link_bridge):
-    """plot_shell_contour with plotly backend returns a Figure with Mesh3d."""
+def test_plot_srf_plotly(shell_link_bridge):
+    """plot_srf with plotly backend returns a Figure with Mesh3d."""
     go = pytest.importorskip("plotly.graph_objects")
     result = _shell_results(shell_link_bridge)
-    fig = og.plot_shell_contour(result, "Mx", backend="plotly", show=False)
+    fig = og.plot_srf(result, "Mx", backend="plotly", show=False)
     assert isinstance(fig, go.Figure)
     mesh_traces = [t for t in fig.data if isinstance(t, go.Mesh3d)]
     assert len(mesh_traces) >= 1
     assert mesh_traces[0].intensity is not None
 
 
-def test_plot_shell_contour_mpl(shell_link_bridge):
-    """plot_shell_contour with matplotlib backend returns Axes."""
+def test_plot_srf_mpl(shell_link_bridge):
+    """plot_srf with matplotlib backend returns Axes."""
     import matplotlib.pyplot as plt
 
     result = _shell_results(shell_link_bridge)
-    ax = og.plot_shell_contour(result, "Mx", backend="matplotlib")
+    ax = og.plot_srf(result, "Mx", backend="matplotlib")
     assert isinstance(ax, plt.Axes)
     plt.close("all")
 
 
-def test_plot_shell_contour_beam_only_raises(bridge_model_42_negative):
-    """Calling plot_shell_contour on a beam-only dataset raises ValueError."""
+def test_plot_srf_beam_only_raises(bridge_model_42_negative):
+    """Calling plot_srf on a beam-only dataset raises ValueError."""
     og.ops.wipeAnalysis()
     bridge = bridge_model_42_negative
     front_wheel = og.PointLoad(
@@ -953,26 +953,26 @@ def test_plot_shell_contour_beam_only_raises(bridge_model_42_negative):
     bridge.analyze()
     result = bridge.get_results()
     with pytest.raises(ValueError, match="shell"):
-        og.plot_shell_contour(result, "Mx")
+        og.plot_srf(result, "Mx")
 
 
-def test_plot_shell_contour_custom_colorscale(shell_link_bridge):
+def test_plot_srf_custom_colorscale(shell_link_bridge):
     """Custom colorscale is applied to the Mesh3d trace."""
     go = pytest.importorskip("plotly.graph_objects")
     result = _shell_results(shell_link_bridge)
-    fig = og.plot_shell_contour(
+    fig = og.plot_srf(
         result, "Mx", backend="plotly", show=False, colorscale="Viridis"
     )
     mesh = [t for t in fig.data if isinstance(t, go.Mesh3d)][0]
     assert mesh.colorscale is not None
 
 
-def test_shell_contour_coexistence_with_bmd(shell_link_bridge):
-    """Shell contour and BMD can coexist on one Plotly figure."""
+def test_srf_coexistence_with_bmd(shell_link_bridge):
+    """SRF contour and BMD can coexist on one Plotly figure."""
     go = pytest.importorskip("plotly.graph_objects")
     result = _shell_results(shell_link_bridge)
     proxy = og.model_proxy_from_results(result)
-    fig = og.plot_shell_contour(result, "Mx", backend="plotly", show=False)
+    fig = og.plot_srf(result, "Mx", backend="plotly", show=False)
     fig2 = og.plot_bmd(
         proxy, result, backend="plotly", show=False, show_supports=False, ax=fig
     )

@@ -30,7 +30,7 @@ __all__ = [
     "plot_tmd",
     "plot_def",
     "plot_model",
-    "plot_shell_contour",
+    "plot_srf",
 ]
 
 
@@ -1972,14 +1972,14 @@ def plot_tmd(
 # ---------------------------------------------------------------------------
 # Shell contour convenience wrapper
 # ---------------------------------------------------------------------------
-def plot_shell_contour(
+def plot_srf(
     result_obj,
     component="Mx",
     loadcase=None,
     backend="plotly",
     **kwargs,
 ):
-    """Plot a filled contour of a shell stress resultant.
+    """Plot a stress resultant field over the shell mesh.
 
     Visualises one of the six stress resultant components (Vx, Vy, Vz,
     Mx, My, Mz) over the shell element mesh.  For ``shell_beam`` models
@@ -1987,7 +1987,7 @@ def plot_shell_contour(
 
     The contour can be composed with beam force diagrams::
 
-        fig = og.plot_shell_contour(results, "Mx", backend="plotly", show=False)
+        fig = og.plot_srf(results, "Mx", backend="plotly", show=False)
         og.plot_bmd(proxy, results, backend="plotly", ax=fig)
 
     :param result_obj: xarray Dataset of results (must contain
@@ -2016,7 +2016,7 @@ def plot_shell_contour(
     if "forces_shell" not in result_obj or "ele_nodes_shell" not in result_obj:
         raise ValueError(
             "Dataset does not contain shell element results. "
-            "plot_shell_contour() requires a shell_beam model."
+            "plot_srf() requires a shell_beam model."
         )
     if "node_coordinates" not in result_obj:
         raise ValueError(
