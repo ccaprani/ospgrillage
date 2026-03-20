@@ -823,6 +823,10 @@ class ResultsControlWidget(QWidget):
         """Show or hide the shell contour controls based on model type."""
         self.contour_group.setVisible(visible)
 
+    def set_shell_contour_enabled(self, enabled):
+        """Enable or disable shell contour controls based on active tab."""
+        self.contour_group.setEnabled(enabled)
+
 
 class BridgeAnalysisGUI(QMainWindow):
     """Main window for the *ospgui* bridge geometry generator.
@@ -1682,6 +1686,8 @@ from math import *
 
     def _on_result_tab_changed(self, index):
         """Slot: user switched result tab — render if stale."""
+        label = self.results_tabs.tabText(index)
+        self.results_panel.set_shell_contour_enabled(label == "Shell Contour")
         self._refresh_current_result_tab()
 
     def _refresh_current_result_tab(self):
