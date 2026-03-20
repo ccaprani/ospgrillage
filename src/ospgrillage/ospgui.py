@@ -905,6 +905,11 @@ class BridgeAnalysisGUI(QMainWindow):
                 padding: 3px;
                 min-height: 20px;
             }
+            QComboBox:disabled, QLineEdit:disabled,
+            QSpinBox:disabled, QDoubleSpinBox:disabled {
+                background-color: #e8e8e8;
+                color: #999999;
+            }
             QComboBox QAbstractItemView {
                 background-color: #ffffff;
                 color: #1a1a1a;
