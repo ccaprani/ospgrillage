@@ -1654,7 +1654,6 @@ from math import *
         # Shell contour visibility
         is_shell = proxy.model_type == "shell_beam"
         self.results_panel.set_shell_contour_visible(is_shell)
-        self.results_panel.set_shell_contour_enabled(False)  # enabled on tab switch
 
         # Enable/disable the Shell Contour tab
         for i in range(self.results_tabs.count()):
@@ -1667,6 +1666,11 @@ from math import *
         if is_shell:
             self._stale_tabs.add("Shell Contour")
         self._switch_to_results()
+
+        # Grey out contour controls unless Shell Contour tab is active
+        current_label = self.results_tabs.tabText(self.results_tabs.currentIndex())
+        self.results_panel.set_shell_contour_enabled(current_label == "Shell Contour")
+
         self._refresh_current_result_tab()
 
     # ------------------------------------------------------------------
