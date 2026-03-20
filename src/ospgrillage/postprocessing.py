@@ -845,8 +845,8 @@ def _plotly_3d_force(
             )
             trace_idx += 1
 
-    # Support markers on the zero-baseline
-    if show_supports:
+    # Support markers on the zero-baseline (skip for _ModelProxy)
+    if show_supports and hasattr(ospgrillage_obj, "Mesh_obj"):
         supports = _extract_support_data(ospgrillage_obj)
         from collections import defaultdict
 
@@ -1044,8 +1044,8 @@ def _plotly_3d_def(
             )
             trace_idx += 1
 
-    # Support markers on the zero-baseline
-    if show_supports:
+    # Support markers on the zero-baseline (skip for _ModelProxy)
+    if show_supports and hasattr(ospgrillage_obj, "Mesh_obj"):
         supports = _extract_support_data(ospgrillage_obj)
         from collections import defaultdict
 
