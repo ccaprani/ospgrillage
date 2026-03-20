@@ -29,6 +29,7 @@ try:
         QMessageBox,
         QRadioButton,
         QFileDialog,
+        QStackedWidget,
     )
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QAction, QIcon
@@ -695,6 +696,112 @@ class BridgeInputWidget(QWidget):
         self.tabs.addTab(tab, "Analysis")
 
 
+class ResultsControlWidget(QWidget):
+    """Left-panel controls for results-viewer mode.
+
+    Shows the loaded file name, a loadcase dropdown, and member-filter
+    checkboxes.  Signals are emitted when the user changes a control so
+    that :class:`BridgeAnalysisGUI` can refresh the plot tabs.
+    """
+
+    _MEMBER_FLAGS = [
+        ("EDGE_BEAM", "Edge Beam"),
+        ("EXTERIOR_MAIN_BEAM_1", "Exterior Main Beam 1"),
+        ("INTERIOR_MAIN_BEAM", "Interior Main Beam"),
+        ("EXTERIOR_MAIN_BEAM_2", "Exterior Main Beam 2"),
+        ("START_EDGE", "Start Edge"),
+        ("END_EDGE", "End Edge"),
+        ("TRANSVERSE_SLAB", "Transverse Slab"),
+    ]
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # --- File info ---
+        file_group = QGroupBox("Results File")
+        file_layout = QVBoxLayout()
+        self.file_label = QLabel("No file loaded")
+        self.file_label.setWordWrap(True)
+        file_layout.addWidget(self.file_label)
+        file_group.setLayout(file_layout)
+        layout.addWidget(file_group)
+
+        # --- Loadcase dropdown ---
+        lc_group = QGroupBox("Load Case")
+        lc_layout = QFormLayout()
+        self.loadcase_combo = QComboBox()
+        self.loadcase_combo.addItem("(no results loaded)")
+        lc_layout.addRow("Select:", self.loadcase_combo)
+        lc_group.setLayout(lc_layout)
+        layout.addWidget(lc_group)
+
+        # --- Member filter checkboxes ---
+        members_group = QGroupBox("Member Filter")
+        members_layout = QVBoxLayout()
+        self.member_checkboxes = {}
+        for flag_name, display_name in self._MEMBER_FLAGS:
+            cb = QCheckBox(display_name)
+            cb.setChecked(True)
+            members_layout.addWidget(cb)
+            self.member_checkboxes[flag_name] = cb
+        members_group.setLayout(members_layout)
+        layout.addWidget(members_group)
+
+        # --- Back button ---
+        self.btn_back = QPushButton("Back to Wizard")
+        layout.addWidget(self.btn_back)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+    def populate_loadcases(self, loadcase_names):
+        """Fill the combo box from a list of loadcase name strings."""
+        self.loadcase_combo.blockSignals(True)
+        self.loadcase_combo.clear()
+        for name in loadcase_names:
+            self.loadcase_combo.addItem(str(name))
+        self.loadcase_combo.blockSignals(False)
+
+    def update_available_members(self, proxy):
+        """Enable/disable checkboxes based on which members have elements."""
+        for flag_name, cb in self.member_checkboxes.items():
+            member_name = flag_name.lower()
+            has_elements = False
+            info = proxy._members.get(member_name, {})
+            for group in info.get("elements", []):
+                if group:
+                    has_elements = True
+                    break
+            cb.setEnabled(has_elements)
+            cb.setChecked(has_elements)
+
+    def set_file_info(self, filename, summary):
+        """Update the file info label."""
+        self.file_label.setText(f"<b>{filename}</b><br>{summary}")
+
+    def selected_loadcase(self):
+        """Return the currently selected loadcase name, or None."""
+        text = self.loadcase_combo.currentText()
+        if text and text != "(no results loaded)":
+            return text
+        return None
+
+    def selected_members(self):
+        """Return a Members bitflag from the checked boxes, or None for all."""
+        try:
+            import ospgrillage as og
+        except ImportError:
+            return None
+        result = None
+        for flag_name, cb in self.member_checkboxes.items():
+            if cb.isChecked():
+                flag = getattr(og.Members, flag_name)
+                result = flag if result is None else (result | flag)
+        return result if result is not None else og.Members.ALL
+
+
 class BridgeAnalysisGUI(QMainWindow):
     """Main window for the *ospgui* bridge geometry generator.
 
@@ -724,14 +831,17 @@ class BridgeAnalysisGUI(QMainWindow):
         # Add this stylesheet
         self.setStyleSheet(
             """
-            QMainWindow {
+            /* Force light theme regardless of desktop settings */
+            QWidget {
                 background-color: #f0f0f0;
+                color: #1a1a1a;
             }
             QGroupBox {
                 border: 1px solid #cccccc;
                 border-radius: 4px;
                 margin-top: 1ex;
                 font-weight: bold;
+                color: #1a1a1a;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -740,23 +850,66 @@ class BridgeAnalysisGUI(QMainWindow):
             }
             QTabWidget::pane {
                 border: 1px solid #cccccc;
+                background-color: #ffffff;
                 top: -1px;
             }
             QTabBar::tab {
                 background: #e0e0e0;
+                color: #1a1a1a;
                 border: 1px solid #cccccc;
                 padding: 8px;
-                min-width: 100px;
+                min-width: 60px;
             }
             QTabBar::tab:selected {
                 background: #ffffff;
                 border-bottom-color: #ffffff;
             }
             QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit {
+                background-color: #ffffff;
+                color: #1a1a1a;
                 border: 1px solid #cccccc;
                 border-radius: 3px;
                 padding: 3px;
                 min-height: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #1a1a1a;
+                selection-background-color: #0078d4;
+                selection-color: #ffffff;
+            }
+            QCheckBox {
+                color: #1a1a1a;
+            }
+            QRadioButton {
+                color: #1a1a1a;
+            }
+            QLabel {
+                color: #1a1a1a;
+            }
+            QMenuBar {
+                background-color: #f0f0f0;
+                color: #1a1a1a;
+            }
+            QMenuBar::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QMenu {
+                background-color: #ffffff;
+                color: #1a1a1a;
+            }
+            QMenu::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QToolBar {
+                background-color: #f0f0f0;
+                border: none;
+            }
+            QStatusBar {
+                background-color: #f0f0f0;
+                color: #1a1a1a;
             }
             QPushButton {
                 background-color: #0078d4;
@@ -768,6 +921,9 @@ class BridgeAnalysisGUI(QMainWindow):
             QPushButton:hover {
                 background-color: #006cbd;
             }
+            QScrollArea {
+                background-color: #f0f0f0;
+            }
         """
         )
         self.setWindowTitle("ospgui")
@@ -777,20 +933,23 @@ class BridgeAnalysisGUI(QMainWindow):
         self.bridge_params = {}
         self.generated_code = ""
 
+        # Results viewer state
+        self._mode = "wizard"       # "wizard" or "results"
+        self._model_proxy = None    # _ModelProxy from loaded results
+        self._results = None        # xarray Dataset
+        self._stale_tabs = set()    # result tab names needing re-render
+
         # Create UI components
         self.create_menu_bar()
-        self.create_tool_bar()
         self.create_status_bar()
         self.create_main_content()
 
     def open_file(self):
-        options = QFileDialog.Options()
         file_name, _ = QFileDialog.getOpenFileName(
             self,
             "Open Python Script",
             "",
             "Python Files (*.py);;All Files (*)",
-            options=options,
         )
 
         if file_name:
@@ -807,8 +966,12 @@ class BridgeAnalysisGUI(QMainWindow):
     def show_about(self):
         QMessageBox.about(
             self,
-            "About This Application",
-            "This is a simple GUI Application for accesing Ospgrillage geometry features with ease.\nVersion 1.0\nMay 2025",
+            "About ospgui",
+            "ospgui — GUI for ospgrillage\n\n"
+            "Wizard mode: define bridge grillage geometry\n"
+            "Results mode: view BMD/SFD/TMD/Deflection from .nc files\n\n"
+            "ospgrillage v"
+            + getattr(__import__("ospgrillage"), "__version__", "unknown"),
         )
 
     def create_menu_bar(self):
@@ -822,10 +985,16 @@ class BridgeAnalysisGUI(QMainWindow):
         new_action.setShortcut("Ctrl+N")
         file_menu.addAction(new_action)
 
-        open_action = QAction(QIcon.fromTheme("document-open"), "Open", self)
-        open_action.setShortcut("Ctrl+O")
-        open_action.triggered.connect(self.open_file)
-        file_menu.addAction(open_action)
+        open_results_action = QAction(
+            QIcon.fromTheme("document-open"), "Open Results (.nc)", self
+        )
+        open_results_action.setShortcut("Ctrl+O")
+        open_results_action.triggered.connect(self._open_results_file)
+        file_menu.addAction(open_results_action)
+
+        open_script_action = QAction("Open Script (.py)", self)
+        open_script_action.triggered.connect(self.open_file)
+        file_menu.addAction(open_script_action)
 
         save_action = QAction(QIcon.fromTheme("document-save"), "Save", self)
         save_action.setShortcut("Ctrl+S")
@@ -882,24 +1051,44 @@ class BridgeAnalysisGUI(QMainWindow):
         self.statusbar.showMessage("Ready")
 
     def create_main_content(self):
-        """Create the main content area with tabs"""
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        """Create the main content area with two-mode stacked layout.
 
-        # Main layout
-        main_layout = QHBoxLayout()
-        central_widget.setLayout(main_layout)
+        **Wizard mode** (page 0): left = BridgeInputWidget, right = Code + 3D tabs.
+        **Results mode** (page 1): left = ResultsControlWidget, right = BMD/SFD/TMD/Def tabs.
+        """
+        from PyQt6.QtWidgets import QSplitter
 
-        # Left panel - Input parameters
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.setCentralWidget(splitter)
+
+        # ---- Left stacked widget ----
+        self.left_stack = QStackedWidget()
+
+        # Page 0: Wizard input panel
         self.input_panel = BridgeInputWidget()
         self.input_panel.btn_apply.clicked.connect(self.apply_changes)
         self.input_panel.btn_run.clicked.connect(self.run_analysis)
-        main_layout.addWidget(self.input_panel, stretch=1)
+        self.left_stack.addWidget(self.input_panel)  # index 0
 
-        # Right panel - Visualization and code tabs
+        # Page 1: Results controls
+        self.results_panel = ResultsControlWidget()
+        self.results_panel.loadcase_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        for cb in self.results_panel.member_checkboxes.values():
+            cb.stateChanged.connect(self._on_results_control_changed)
+        self.results_panel.btn_back.clicked.connect(self._switch_to_wizard)
+        self.left_stack.addWidget(self.results_panel)  # index 1
+
+        self.left_stack.setMinimumWidth(200)
+        splitter.addWidget(self.left_stack)
+        splitter.setCollapsible(0, True)
+
+        # ---- Right stacked widget ----
+        self.right_stack = QStackedWidget()
+
+        # Page 0: Wizard — code view + 3D view
         self.right_panel = QTabWidget()
-
-        # Visualization tab (interactive 3D via Plotly in a web view)
         if _WEBENGINE_AVAILABLE:
             self.viz_tab = QWebEngineView()
             self.viz_tab.setHtml(
@@ -914,19 +1103,37 @@ class BridgeAnalysisGUI(QMainWindow):
                 "  pip install PyQtWebEngine"
             )
             self.viz_tab.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Code view tab
         self.code_tab = QTextEdit()
         self.code_tab.setStyleSheet("font-family: monospace; font-size: 10pt;")
-        self.code_tab.setLineWrapMode(QTextEdit.NoWrap)
-
-        # Add tabs to right panel
+        self.code_tab.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.right_panel.addTab(self.code_tab, "Code View")
         self.right_panel.addTab(self.viz_tab, "3D View")
+        self.right_stack.addWidget(self.right_panel)  # index 0
 
-        # Add panels to main layout
-        main_layout.addWidget(self.input_panel, stretch=1)
-        main_layout.addWidget(self.right_panel, stretch=2)
+        # Page 1: Results — BMD / SFD / TMD / Deflection tabs
+        self.results_tabs = QTabWidget()
+        _placeholder = (
+            "<html><body style='display:flex;align-items:center;"
+            "justify-content:center;height:100vh;font-family:sans-serif;"
+            "color:#888'><p>Open a results file (.nc) to see "
+            "diagrams here.</p></body></html>"
+        )
+        self._result_tab_widgets = {}
+        for label in ("Deflection", "BMD", "SFD", "TMD"):
+            if _WEBENGINE_AVAILABLE:
+                tab = QWebEngineView()
+                tab.setHtml(_placeholder)
+            else:
+                tab = QLabel("Install PyQtWebEngine for result plots")
+                tab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.results_tabs.addTab(tab, label)
+            self._result_tab_widgets[label] = tab
+        self.results_tabs.currentChanged.connect(self._on_result_tab_changed)
+        self.right_stack.addWidget(self.results_tabs)  # index 1
+
+        splitter.addWidget(self.right_stack)
+        splitter.setStretchFactor(0, 1)  # left panel
+        splitter.setStretchFactor(1, 2)  # right panel
 
     def apply_changes(self):
         """Handle Apply Changes button click"""
@@ -1339,8 +1546,171 @@ from math import *
                 self, "Error", f"Unexpected error saving file:\n{str(e)}"
             )
 
+    # ------------------------------------------------------------------
+    # Mode switching
+    # ------------------------------------------------------------------
+    def _switch_to_wizard(self):
+        """Switch to wizard mode (left=inputs, right=code+3D)."""
+        self._mode = "wizard"
+        self.left_stack.setCurrentIndex(0)
+        self.right_stack.setCurrentIndex(0)
+        self.statusbar.showMessage("Wizard mode", 3000)
+
+    def _switch_to_results(self):
+        """Switch to results mode (left=controls, right=result tabs)."""
+        self._mode = "results"
+        self.left_stack.setCurrentIndex(1)
+        self.right_stack.setCurrentIndex(1)
+        self.statusbar.showMessage("Results viewer mode", 3000)
+
+    # ------------------------------------------------------------------
+    # Results file loading
+    # ------------------------------------------------------------------
+    def _open_results_file(self):
+        """Load a NetCDF results file and switch to results mode."""
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Results File",
+            "",
+            "NetCDF Files (*.nc);;All Files (*)",
+        )
+        if not file_name:
+            return
+
+        try:
+            import xarray as xr
+            import ospgrillage as og
+
+            ds = xr.open_dataset(file_name)
+            proxy = og.model_proxy_from_results(ds)
+        except KeyError as e:
+            QMessageBox.warning(
+                self,
+                "Incompatible File",
+                f"This file is missing geometry data:\n{e}\n\n"
+                "Re-save results with ospgrillage >= 0.5.4 to include "
+                "node coordinates and member connectivity.",
+            )
+            return
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error", f"Could not load results file:\n{e}"
+            )
+            return
+
+        self._model_proxy = proxy
+        self._results = ds
+
+        # Populate controls
+        loadcase_names = []
+        if "Loadcase" in ds.coords:
+            loadcase_names = [str(lc) for lc in ds.coords["Loadcase"].values]
+        self.results_panel.populate_loadcases(loadcase_names)
+        self.results_panel.update_available_members(proxy)
+
+        n_vars = len(ds.data_vars)
+        n_lc = len(loadcase_names)
+        self.results_panel.set_file_info(
+            os.path.basename(file_name),
+            f"{n_vars} variables, {n_lc} load cases",
+        )
+
+        # Mark all result tabs stale and switch mode
+        self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection"}
+        self._switch_to_results()
+        self._refresh_current_result_tab()
+
+    # ------------------------------------------------------------------
+    # Lazy result tab rendering
+    # ------------------------------------------------------------------
+    def _on_results_control_changed(self, _=None):
+        """Slot: loadcase or member filter changed — debounced refresh."""
+        self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection"}
+        # Debounce: multiple checkbox changes in quick succession are
+        # collapsed into a single render via a short single-shot timer.
+        if not hasattr(self, "_debounce_timer"):
+            from PyQt6.QtCore import QTimer
+
+            self._debounce_timer = QTimer(self)
+            self._debounce_timer.setSingleShot(True)
+            self._debounce_timer.setInterval(200)  # ms
+            self._debounce_timer.timeout.connect(self._refresh_current_result_tab)
+        self._debounce_timer.start()
+
+    def _on_result_tab_changed(self, index):
+        """Slot: user switched result tab — render if stale."""
+        self._refresh_current_result_tab()
+
+    def _refresh_current_result_tab(self):
+        """Render only the currently visible result tab if it is stale."""
+        if self._model_proxy is None or self._results is None:
+            return
+        if not _WEBENGINE_AVAILABLE:
+            return
+
+        current_idx = self.results_tabs.currentIndex()
+        label = self.results_tabs.tabText(current_idx)
+        if label not in self._stale_tabs:
+            return
+
+        import ospgrillage as og
+
+        loadcase = self.results_panel.selected_loadcase()
+        members = self.results_panel.selected_members()
+
+        _PLOT_FN = {
+            "BMD": og.plot_bmd,
+            "SFD": og.plot_sfd,
+            "TMD": og.plot_tmd,
+            "Deflection": og.plot_def,
+        }
+        plot_fn = _PLOT_FN.get(label)
+        widget = self._result_tab_widgets.get(label)
+        if plot_fn is None or widget is None:
+            return
+
+        try:
+            fig = plot_fn(
+                self._model_proxy,
+                self._results,
+                members=members,
+                loadcase=loadcase,
+                backend="plotly",
+                show=False,
+                show_supports=False,
+            )
+            fig.update_layout(
+                legend=dict(x=1.02, y=1, xanchor="left", yanchor="top"),
+                margin=dict(r=200),
+            )
+            # Write to temp file and load via URL to avoid
+            # QWebEngineView's 2 MB setHtml() size limit.
+            import tempfile
+            from PyQt6.QtCore import QUrl
+
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=".html", delete=False, mode="w", encoding="utf-8",
+            )
+            tmp.write(fig.to_html(include_plotlyjs=True))
+            tmp.close()
+            widget.setUrl(QUrl.fromLocalFile(tmp.name))
+            widget.update()
+            self._stale_tabs.discard(label)
+            self.statusbar.showMessage(f"{label} updated", 3000)
+        except Exception as e:
+            widget.setHtml(
+                f"<html><body style='padding:20px;font-family:sans-serif'>"
+                f"<h3>Could not render {label}</h3><pre>{e}</pre>"
+                f"</body></html>"
+            )
+            self._stale_tabs.discard(label)
+            logger.warning("Result plot %s failed: %s", label, e)
+
     def run_analysis(self):
         """Handle Run Analysis button click"""
+        # Ensure we're in wizard mode
+        if self._mode != "wizard":
+            self._switch_to_wizard()
         try:
             # First apply any changes
             self.apply_changes()

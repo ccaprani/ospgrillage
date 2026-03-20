@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from copy import deepcopy
 from datetime import datetime
 from itertools import combinations
+import json
 import logging
 import math
 from typing import List, Tuple, Union, TYPE_CHECKING
@@ -2262,6 +2263,67 @@ class OspGrillage:
         if self.diagnostics:
             logger.info("Load Combination: %s created", load_combination_name)
 
+    def _embed_geometry(self, ds):
+        """Add node coordinates and member-element mappings to a Dataset.
+
+        This makes saved ``.nc`` files self-contained so that plotting
+        functions can reconstruct the model geometry without the original
+        :class:`OspGrillage` object.
+        """
+        # --- node coordinates DataArray ---
+        node_spec = self.Mesh_obj.node_spec
+        node_tags = sorted(node_spec.keys())
+        coord_data = np.array(
+            [node_spec[n]["coordinate"] for n in node_tags]
+        )
+        ds["node_coordinates"] = xr.DataArray(
+            coord_data,
+            dims=("Node", "Axis"),
+            coords={"Node": node_tags, "Axis": ["x", "y", "z"]},
+        )
+
+        # --- member-element mapping (JSON attr) ---
+        _PLOT_MEMBERS = [
+            "edge_beam",
+            "exterior_main_beam_1",
+            "interior_main_beam",
+            "exterior_main_beam_2",
+            "start_edge",
+            "end_edge",
+            "transverse_slab",
+        ]
+        member_map = {}
+        for member in _PLOT_MEMBERS:
+            z_groups = self.common_grillage_element_z_group.get(member)
+            # transverse_slab is not in z_group dict but get_element()
+            # still works for it (uses Mesh_obj.trans_ele directly).
+            # Treat missing/None as a single implicit group.
+            n_groups = len(z_groups) if isinstance(z_groups, list) else 1
+            ele_groups = []
+            node_groups = []
+            for zg in range(n_groups):
+                try:
+                    ele_groups.append(
+                        self.get_element(
+                            member=member, options="elements", z_group_num=zg
+                        )
+                    )
+                except (KeyError, IndexError):
+                    ele_groups.append([])
+                try:
+                    nodes = self.get_element(
+                        member=member, options="nodes", z_group_num=zg
+                    )
+                    node_groups.append(nodes)
+                except (KeyError, IndexError):
+                    node_groups.append([])
+            member_map[member] = {"elements": ele_groups, "nodes": node_groups}
+
+        ds.attrs["member_elements"] = json.dumps(member_map)
+        ds.attrs["model_type"] = self.model_type
+
+        return ds
+
     def get_results(self, **kwargs):
         """
         Return analysis results as an xarray ``Dataset``.
@@ -2289,9 +2351,9 @@ class OspGrillage:
             combinations. Pass as a ``dict`` with load case name strings
             as keys and load factors (``int`` or ``float``) as values.
         :type combinations: dict, optional
-        :param save_file_name: File name for saving results to NetCDF
+        :param save_filename: File name for saving results to NetCDF
             format in the current working directory.
-        :type save_file_name: str, optional
+        :type save_filename: str, optional
         :returns: Xarray DataSet of analysis results.  If ``combinations``
             is provided, returns a list of DataSets, one per load
             combination.
@@ -2308,6 +2370,9 @@ class OspGrillage:
             local_force_option=local_force_flag,
             main_ele_tags=self.Mesh_obj.element_counter,
         )
+
+        # Embed geometry metadata so saved results are self-contained
+        basic_da = self._embed_geometry(basic_da)
 
         if isinstance(specific_load_case, str):
             specific_load_case = [specific_load_case]
@@ -2425,6 +2490,8 @@ class OspGrillage:
                 combination_array = factored_array.assign_coords(
                     Loadcase=coordinate_name_list
                 )
+            if save_filename:
+                combination_array.to_netcdf(save_filename)
             return combination_array
 
         else:

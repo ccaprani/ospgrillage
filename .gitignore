@@ -44,3 +44,4 @@ docs/source/_static/
 .pytest_cache/
 docs/source/rst/generated/
 docs/source/pages/generated/
+*.nc

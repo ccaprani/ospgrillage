@@ -8,6 +8,7 @@ module of OpenSeesPy - this module fills in gaps to
 """
 
 import enum
+import json
 import matplotlib.pyplot as plt
 import opsvis as opsv
 import numpy as np
@@ -22,6 +23,7 @@ __all__ = [
     "Members",
     "PostProcessor",
     "create_envelope",
+    "model_proxy_from_results",
     "plot_force",
     "plot_bmd",
     "plot_sfd",
@@ -29,6 +31,98 @@ __all__ = [
     "plot_def",
     "plot_model",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Lightweight model proxy for standalone results files
+# ---------------------------------------------------------------------------
+class _ModelProxy:
+    """Reconstruct the model interface needed by plot functions from a Dataset.
+
+    When results are saved to NetCDF with
+    :meth:`~ospgrillage.osp_grillage.OspGrillage.get_results` the file
+    contains ``node_coordinates``, ``member_elements`` (JSON attr), and
+    ``model_type`` (attr).  This class wraps a loaded Dataset and exposes
+    the same ``get_nodes`` / ``get_element`` /
+    ``common_grillage_element_z_group`` interface that the plotting helpers
+    expect.
+    """
+
+    def __init__(self, ds):
+        self.model_type = ds.attrs.get("model_type", "beam_link")
+
+        # Build node_spec dict: {tag: {"coordinate": [x, y, z]}}
+        coords_da = ds["node_coordinates"]
+        self._node_spec = {}
+        for tag in coords_da.coords["Node"].values:
+            self._node_spec[int(tag)] = {
+                "coordinate": coords_da.sel(Node=tag).values.tolist()
+            }
+
+        # Build member-element mapping from JSON attr
+        self._members = json.loads(ds.attrs.get("member_elements", "{}"))
+
+        # Reconstruct common_grillage_element_z_group (member → list of
+        # z-group indices, e.g. {"interior_main_beam": [0, 1, 2]}).
+        self.common_grillage_element_z_group = {}
+        for member, info in self._members.items():
+            self.common_grillage_element_z_group[member] = list(
+                range(len(info["elements"]))
+            )
+
+    def get_nodes(self, number=None):
+        """Return node specification dict, or coordinates of a single node."""
+        if number:
+            return self._node_spec[number]["coordinate"]
+        return self._node_spec
+
+    def get_element(self, **kwargs):
+        """Return element tags or node tags for a member group."""
+        member = kwargs.get("member", None)
+        options = kwargs.get("options", "nodes")
+        z_group_num = kwargs.get("z_group_num", 0)
+
+        info = self._members.get(member, {"elements": [[]], "nodes": [[]]})
+        key = "elements" if options == "elements" else "nodes"
+        groups = info.get(key, [[]])
+        if z_group_num < len(groups):
+            return groups[z_group_num]
+        return []
+
+
+def model_proxy_from_results(ds):
+    """Create a lightweight model proxy from a self-contained results Dataset.
+
+    The proxy satisfies the interface required by plotting functions
+    (:func:`plot_bmd`, :func:`plot_sfd`, etc.) so that results saved to
+    NetCDF can be visualised without the original
+    :class:`~ospgrillage.osp_grillage.OspGrillage` object.
+
+    :param ds: Dataset loaded via ``xarray.open_dataset()``.  Must contain
+        a ``node_coordinates`` variable and ``member_elements`` /
+        ``model_type`` attributes (added automatically by
+        :meth:`~ospgrillage.osp_grillage.OspGrillage.get_results`).
+    :type ds: :class:`xarray.Dataset`
+    :returns: A proxy object with ``get_nodes()``, ``get_element()``, and
+        ``common_grillage_element_z_group`` matching the OspGrillage
+        interface.
+    :raises KeyError: If the Dataset is missing the required geometry data.
+
+    Example::
+
+        import xarray as xr
+        import ospgrillage as og
+
+        ds = xr.open_dataset("results.nc")
+        proxy = og.model_proxy_from_results(ds)
+        og.plot_bmd(proxy, ds, backend="plotly")
+    """
+    if "node_coordinates" not in ds:
+        raise KeyError(
+            "Dataset does not contain 'node_coordinates'. "
+            "Re-save results with ospgrillage >= 0.5.4 to include geometry."
+        )
+    return _ModelProxy(ds)
 
 
 # Sentinel for auto-generated titles.  ``title=_AUTO`` means "use the

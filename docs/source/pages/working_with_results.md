@@ -178,6 +178,81 @@ Coordinates:
 
 For more options see {func}`~ospgrillage.postprocessing.create_envelope`.
 
+## Saving and loading results
+
+Results can be saved to a [NetCDF](https://www.unidata.ucar.edu/software/netcdf/)
+file — the standard binary format for labelled multi-dimensional data — by
+passing the ``save_filename`` keyword to
+{meth}`~ospgrillage.osp_grillage.OspGrillage.get_results`:
+
+```python
+# Save while retrieving
+results = example_bridge.get_results(save_filename="my_results.nc")
+
+# Also works with load combinations
+comb = example_bridge.get_results(
+    combinations={"Dead load": 1.2, "SIDL": 1.5},
+    save_filename="combination_results.nc",
+)
+```
+
+This writes the full xarray Dataset — including node coordinates and
+member-element connectivity — to a ``.nc`` file in the current working
+directory.
+
+### Loading saved results
+
+To reload saved results later, use xarray directly:
+
+```python
+import xarray as xr
+reloaded = xr.open_dataset("my_results.nc")
+```
+
+The reloaded Dataset has the same structure (``displacements``, ``forces``,
+``ele_nodes``, etc.) so all the selection and envelope operations described
+above work identically.
+
+### Plotting from a saved file
+
+The saved file is **self-contained**: it includes the node coordinates and
+member mappings needed by the plotting functions.  Use
+{func}`~ospgrillage.postprocessing.model_proxy_from_results` to create a
+lightweight proxy that stands in for the original grillage model:
+
+```python
+import xarray as xr
+import ospgrillage as og
+
+ds = xr.open_dataset("my_results.nc")
+proxy = og.model_proxy_from_results(ds)
+
+# All plotting functions work with the proxy
+og.plot_bmd(proxy, ds, backend="plotly")
+og.plot_sfd(proxy, ds, backend="plotly")
+og.plot_def(proxy, ds, backend="plotly")
+og.plot_tmd(proxy, ds, backend="plotly")
+```
+
+```{note}
+The proxy supports force diagrams and deflected shapes.  For the full
+model geometry visualisation ({func}`~ospgrillage.postprocessing.plot_model`)
+you still need the original :class:`~ospgrillage.osp_grillage.OspGrillage`
+object.
+```
+
+### Viewing results in the GUI
+
+The ``ospgui`` application can open ``.nc`` files directly via
+**File > Open Results (.nc)** (Ctrl+O).  This switches to a results viewer
+with interactive BMD, SFD, TMD, and deflection tabs, plus loadcase and
+member-filter controls.
+
+To generate test ``.nc`` files for all three mesh types (Oblique, GMS,
+Ortho), run::
+
+    python tests/generate_test_results.py
+
 ## Plotting results
 
 ### Model visualisation

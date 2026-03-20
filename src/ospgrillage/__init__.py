@@ -62,6 +62,7 @@ __all__ = [
     "Members",
     "PostProcessor",
     "create_envelope",
+    "model_proxy_from_results",
     "plot_force",
     "plot_bmd",
     "plot_sfd",
