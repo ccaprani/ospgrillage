@@ -2794,6 +2794,7 @@ class Analysis:
         self.global_ele_force_shell = (
             dict()
         )  # ditto for global ele force except only for shells
+        self.ele_stresses = dict()  # shell stress resultants at Gauss points
         self.mesh_node_counter = node_counter  # set node counter based on current Mesh
         self.mesh_ele_counter = ele_counter  # set ele counter based on current Mesh
         # save deepcopy of load case object
@@ -2945,6 +2946,11 @@ class Analysis:
                 self.ele_force.setdefault(ele_tag, ele_force)
                 global_ele_force = ops.eleResponse(ele_tag, "forces")
                 self.global_ele_force.setdefault(ele_tag, global_ele_force)
+                # Shell stress resultants at Gauss points (32 values for
+                # 4-node shells: 8 per GP × 4 GPs).  Empty for beam elements.
+                ele_stress = ops.eleResponse(ele_tag, "stresses")
+                if ele_stress:
+                    self.ele_stresses.setdefault(ele_tag, ele_stress)
         else:
             logger.info(
                 "OspGrillage is at output mode (pyfile=True). Procedure for %s generated.",
@@ -2962,6 +2968,7 @@ class Results:
         # instantiate variables
         self.basic_load_case_record = dict()
         self.basic_load_case_record_global_forces = dict()
+        self.basic_load_case_record_stresses = dict()  # shell stress resultants
         self.moving_load_case_record = []
         self.moving_load_case_record_global_forces = []
         self.moving_load_counter = 0
@@ -3034,6 +3041,13 @@ class Results:
             "My_l",
             "Mz_l",
         ]
+        # Shell section stress resultants at Gauss points.
+        # 8 components per GP × 4 GPs = 32 per element.
+        _gp_labels = ["gp1", "gp2", "gp3", "gp4"]
+        _sr_labels = ["N11", "N22", "N12", "M11", "M22", "M12", "Q13", "Q23"]
+        self.stress_component_shell = [
+            f"{sr}_{gp}" for gp in _gp_labels for sr in _sr_labels
+        ]
         # dimension names
         self.dim = ["Loadcase", "Node", "Component"]
         self.dim2 = ["Loadcase", "Element", "Component"]
@@ -3102,6 +3116,16 @@ class Results:
                     ele_nodes_dict,
                 ],
             )
+
+            # Shell stress resultants (only for elements that returned stresses)
+            if analysis_obj.ele_stresses:
+                ele_stress_dict = {}
+                for ele_num, stresses in analysis_obj.ele_stresses.items():
+                    ele_stress_dict[ele_num] = stresses
+                self.basic_load_case_record_stresses.setdefault(
+                    analysis_obj.analysis_name, ele_stress_dict,
+                )
+
         # if moving load, input is a list of analysis obj
         elif list_of_inc_analysis:
             inc_load_case_record = dict()
@@ -3381,17 +3405,40 @@ class Results:
                     dims=[self.dim2[1], "Nodes"],
                     coords={self.dim2[1]: ele_tag_shell, "Nodes": self.dim_ele_shell},
                 )
-                result = xr.Dataset(
-                    {
-                        "displacements": basic_da_d,
-                        "velocity": basic_da_v,
-                        "acceleration": basic_da_a,
-                        "forces_beam": force_da_beam,
-                        "forces_shell": force_da_shell,
-                        "ele_nodes_beam": ele_nodes_beam,
-                        "ele_nodes_shell": ele_nodes_shell,
-                    }
-                )
+
+                # Shell stress resultants at Gauss points (32 per element)
+                ds_vars = {
+                    "displacements": basic_da_d,
+                    "velocity": basic_da_v,
+                    "acceleration": basic_da_a,
+                    "forces_beam": force_da_beam,
+                    "forces_shell": force_da_shell,
+                    "ele_nodes_beam": ele_nodes_beam,
+                    "ele_nodes_shell": ele_nodes_shell,
+                }
+                if self.basic_load_case_record_stresses:
+                    stress_list = []
+                    for lc_name in basic_load_case_coord:
+                        lc_stresses = self.basic_load_case_record_stresses.get(lc_name, {})
+                        lc_row = [
+                            lc_stresses.get(tag, [0.0] * 32)
+                            for tag in ele_tag_shell
+                        ]
+                        stress_list.append(lc_row)
+                    stress_array = np.array(stress_list)
+                    if stress_array.size:
+                        # Use "Stress" dimension (not "Component") to avoid
+                        # xarray auto-aligning with forces_shell's Component.
+                        ds_vars["stresses_shell"] = xr.DataArray(
+                            data=stress_array,
+                            dims=["Loadcase", "Element", "Stress"],
+                            coords={
+                                "Loadcase": basic_load_case_coord,
+                                "Element": ele_tag_shell,
+                                "Stress": self.stress_component_shell,
+                            },
+                        )
+                result = xr.Dataset(ds_vars)
             else:
                 force_da_beam = xr.DataArray(
                     data=force_array,

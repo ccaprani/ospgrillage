@@ -753,7 +753,8 @@ class ResultsControlWidget(QWidget):
         self.contour_group = QGroupBox("Shell Contour")
         contour_layout = QFormLayout()
         self.contour_component_combo = QComboBox()
-        for comp in ("Mx", "My", "Mz", "Vx", "Vy", "Vz", "Dx", "Dy", "Dz"):
+        for comp in ("Mx", "My", "Mz", "Vx", "Vy", "Vz", "Dx", "Dy", "Dz",
+                     "N11", "N22", "N12", "M11", "M22", "M12", "Q13", "Q23"):
             self.contour_component_combo.addItem(comp)
         contour_layout.addRow("Component:", self.contour_component_combo)
         self.contour_colorscale_combo = QComboBox()

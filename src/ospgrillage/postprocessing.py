@@ -339,8 +339,20 @@ _SHELL_COMP_COLUMNS = {
 # the Component coordinate in the ``displacements`` DataArray.
 _DISP_COMPONENTS = {"Dx": "x", "Dy": "y", "Dz": "z"}
 
+# Shell section stress resultants (from Gauss-point data in stresses_shell).
+# User-facing name → list of 4 GP column names in the ``Stress`` dimension.
+_STRESS_RESULTANTS = ("N11", "N22", "N12", "M11", "M22", "M12", "Q13", "Q23")
+_STRESS_COMP_COLUMNS = {
+    sr: [f"{sr}_{gp}" for gp in ("gp1", "gp2", "gp3", "gp4")]
+    for sr in _STRESS_RESULTANTS
+}
+
 # All components accepted by plot_srf
-_SRF_COMPONENTS = _SHELL_COMPONENTS + tuple(_DISP_COMPONENTS.keys())
+_SRF_COMPONENTS = (
+    _SHELL_COMPONENTS
+    + tuple(_DISP_COMPONENTS.keys())
+    + _STRESS_RESULTANTS
+)
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +639,63 @@ def _extract_shell_disp_data(result_obj, component, loadcase=None):
         val = float(disps.sel(Node=tag, Component=ds_comp).values)
         node_values[tag] = val
 
+    return node_values, element_quads
+
+
+def _extract_shell_stress_data(result_obj, component, loadcase=None):
+    """Extract per-node stress resultant values over the shell mesh.
+
+    The ``stresses_shell`` DataArray stores 8 stress resultants at 4
+    Gauss points per element.  This function averages the requested
+    component across the 4 Gauss points to get one value per element,
+    then averages contributions from neighbouring elements at shared
+    nodes (same approach as :func:`_extract_shell_contour_data`).
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+    component : str
+        One of ``"N11"``, ``"N22"``, ``"N12"``, ``"M11"``, ``"M22"``,
+        ``"M12"``, ``"Q13"``, ``"Q23"``.
+    loadcase : str or None
+
+    Returns
+    -------
+    node_values : dict[int, float]
+    element_quads : list[tuple[int, ...]]
+    """
+    from collections import defaultdict
+
+    columns = _STRESS_COMP_COLUMNS[component]
+    stresses = result_obj["stresses_shell"]
+    ele_nodes = result_obj["ele_nodes_shell"]
+
+    # Select loadcase
+    if loadcase is not None:
+        stresses = stresses.sel(Loadcase=loadcase)
+    else:
+        stresses = stresses.isel(Loadcase=0)
+
+    accum = defaultdict(list)
+    element_quads = []
+
+    for ele in ele_nodes.coords["Element"].values:
+        tags_raw = ele_nodes.sel(Element=ele).values.flatten()
+        tags = [int(t) for t in tags_raw if not np.isnan(t)]
+        if len(tags) < 3:
+            continue
+        element_quads.append(tuple(tags))
+
+        # Average across the 4 Gauss points for this element
+        gp_vals = stresses.sel(Element=ele, Stress=columns).values.flatten()
+        ele_avg = float(np.nanmean(gp_vals))
+
+        # Assign element average to each of its nodes
+        for tag in tags:
+            accum[tag].append(ele_avg)
+
+    # Average contributions from neighbouring elements at shared nodes
+    node_values = {tag: float(np.mean(vals)) for tag, vals in accum.items()}
     return node_values, element_quads
 
 
@@ -1214,6 +1283,10 @@ def _plotly_3d_shell_contour(
         node_values, element_quads = _extract_shell_disp_data(
             result_obj, component, loadcase,
         )
+    elif component in _STRESS_RESULTANTS:
+        node_values, element_quads = _extract_shell_stress_data(
+            result_obj, component, loadcase,
+        )
     else:
         node_values, element_quads = _extract_shell_contour_data(
             result_obj, component, loadcase, averaging=averaging,
@@ -1321,6 +1394,10 @@ def _plot_shell_contour_mpl(
 
     if component in _DISP_COMPONENTS:
         node_values, element_quads = _extract_shell_disp_data(
+            result_obj, component, loadcase,
+        )
+    elif component in _STRESS_RESULTANTS:
+        node_values, element_quads = _extract_shell_stress_data(
             result_obj, component, loadcase,
         )
     else:
@@ -2109,6 +2186,12 @@ def plot_srf(
         raise ValueError("Dataset does not contain 'displacements'.")
     if component in _SHELL_COMPONENTS and "forces_shell" not in result_obj:
         raise ValueError("Dataset does not contain 'forces_shell'.")
+    if component in _STRESS_RESULTANTS and "stresses_shell" not in result_obj:
+        raise ValueError(
+            "Dataset does not contain 'stresses_shell'. "
+            "Re-run analysis with the latest ospgrillage to include "
+            "shell section stress resultants."
+        )
     if "node_coordinates" not in result_obj:
         raise ValueError(
             "Dataset does not contain 'node_coordinates'. "
