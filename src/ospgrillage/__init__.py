@@ -69,6 +69,7 @@ __all__ = [
     "plot_tmd",
     "plot_def",
     "plot_model",
+    "plot_shell_contour",
 ]
 
 

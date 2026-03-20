@@ -749,6 +749,24 @@ class ResultsControlWidget(QWidget):
         members_group.setLayout(members_layout)
         layout.addWidget(members_group)
 
+        # --- Shell contour controls ---
+        self.contour_group = QGroupBox("Shell Contour")
+        contour_layout = QFormLayout()
+        self.contour_component_combo = QComboBox()
+        for comp in ("Mx", "My", "Mz", "Vx", "Vy", "Vz"):
+            self.contour_component_combo.addItem(comp)
+        contour_layout.addRow("Component:", self.contour_component_combo)
+        self.contour_colorscale_combo = QComboBox()
+        for cs in ("RdBu_r", "Viridis", "Plasma", "Cividis", "Turbo"):
+            self.contour_colorscale_combo.addItem(cs)
+        contour_layout.addRow("Colorscale:", self.contour_colorscale_combo)
+        self.contour_overlay_beams = QCheckBox("Overlay beam BMD")
+        self.contour_overlay_beams.setChecked(False)
+        contour_layout.addRow(self.contour_overlay_beams)
+        self.contour_group.setLayout(contour_layout)
+        self.contour_group.setVisible(False)  # shown only for shell_beam
+        layout.addWidget(self.contour_group)
+
         # --- Back button ---
         self.btn_back = QPushButton("Back to Wizard")
         layout.addWidget(self.btn_back)
@@ -800,6 +818,10 @@ class ResultsControlWidget(QWidget):
                 flag = getattr(og.Members, flag_name)
                 result = flag if result is None else (result | flag)
         return result if result is not None else og.Members.ALL
+
+    def set_shell_contour_visible(self, visible):
+        """Show or hide the shell contour controls based on model type."""
+        self.contour_group.setVisible(visible)
 
 
 class BridgeAnalysisGUI(QMainWindow):
@@ -1077,6 +1099,15 @@ class BridgeAnalysisGUI(QMainWindow):
         )
         for cb in self.results_panel.member_checkboxes.values():
             cb.stateChanged.connect(self._on_results_control_changed)
+        self.results_panel.contour_component_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.contour_colorscale_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.contour_overlay_beams.stateChanged.connect(
+            self._on_results_control_changed
+        )
         self.results_panel.btn_back.clicked.connect(self._switch_to_wizard)
         self.left_stack.addWidget(self.results_panel)  # index 1
 
@@ -1119,7 +1150,7 @@ class BridgeAnalysisGUI(QMainWindow):
             "diagrams here.</p></body></html>"
         )
         self._result_tab_widgets = {}
-        for label in ("Deflection", "BMD", "SFD", "TMD"):
+        for label in ("Deflection", "BMD", "SFD", "TMD", "Shell Contour"):
             if _WEBENGINE_AVAILABLE:
                 tab = QWebEngineView()
                 tab.setHtml(_placeholder)
@@ -1615,8 +1646,20 @@ from math import *
             f"{n_vars} variables, {n_lc} load cases",
         )
 
+        # Shell contour visibility
+        is_shell = proxy.model_type == "shell_beam"
+        self.results_panel.set_shell_contour_visible(is_shell)
+
+        # Enable/disable the Shell Contour tab
+        for i in range(self.results_tabs.count()):
+            if self.results_tabs.tabText(i) == "Shell Contour":
+                self.results_tabs.setTabEnabled(i, is_shell)
+                break
+
         # Mark all result tabs stale and switch mode
         self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection"}
+        if is_shell:
+            self._stale_tabs.add("Shell Contour")
         self._switch_to_results()
         self._refresh_current_result_tab()
 
@@ -1625,7 +1668,7 @@ from math import *
     # ------------------------------------------------------------------
     def _on_results_control_changed(self, _=None):
         """Slot: loadcase or member filter changed — debounced refresh."""
-        self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection"}
+        self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection", "Shell Contour"}
         # Debounce: multiple checkbox changes in quick succession are
         # collapsed into a single render via a short single-shot timer.
         if not hasattr(self, "_debounce_timer"):
@@ -1658,27 +1701,54 @@ from math import *
         loadcase = self.results_panel.selected_loadcase()
         members = self.results_panel.selected_members()
 
-        _PLOT_FN = {
-            "BMD": og.plot_bmd,
-            "SFD": og.plot_sfd,
-            "TMD": og.plot_tmd,
-            "Deflection": og.plot_def,
-        }
-        plot_fn = _PLOT_FN.get(label)
         widget = self._result_tab_widgets.get(label)
-        if plot_fn is None or widget is None:
+        if widget is None:
             return
 
         try:
-            fig = plot_fn(
-                self._model_proxy,
-                self._results,
-                members=members,
-                loadcase=loadcase,
-                backend="plotly",
-                show=False,
-                show_supports=False,
-            )
+            if label == "Shell Contour":
+                # Shell contour — reads directly from Dataset
+                comp = self.results_panel.contour_component_combo.currentText()
+                cs = self.results_panel.contour_colorscale_combo.currentText()
+                fig = og.plot_shell_contour(
+                    self._results,
+                    component=comp,
+                    loadcase=loadcase,
+                    backend="plotly",
+                    show=False,
+                    colorscale=cs,
+                )
+                if self.results_panel.contour_overlay_beams.isChecked():
+                    fig = og.plot_bmd(
+                        self._model_proxy,
+                        self._results,
+                        members=members,
+                        loadcase=loadcase,
+                        backend="plotly",
+                        show=False,
+                        show_supports=False,
+                        ax=fig,
+                    )
+            else:
+                _PLOT_FN = {
+                    "BMD": og.plot_bmd,
+                    "SFD": og.plot_sfd,
+                    "TMD": og.plot_tmd,
+                    "Deflection": og.plot_def,
+                }
+                plot_fn = _PLOT_FN.get(label)
+                if plot_fn is None:
+                    return
+                fig = plot_fn(
+                    self._model_proxy,
+                    self._results,
+                    members=members,
+                    loadcase=loadcase,
+                    backend="plotly",
+                    show=False,
+                    show_supports=False,
+                )
+
             fig.update_layout(
                 legend=dict(x=1.02, y=1, xanchor="left", yanchor="top"),
                 margin=dict(r=200),

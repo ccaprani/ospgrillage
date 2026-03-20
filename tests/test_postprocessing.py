@@ -855,3 +855,128 @@ def test_plot_model_no_supports(bridge_model_42_negative):
     fig = og.plot_model(bridge, backend="plotly", show=False, show_supports=False)
     support_traces = [t for t in fig.data if "support" in (t.name or "")]
     assert len(support_traces) == 0
+
+
+# ---------------------------------------------------------------------------
+# Shell contour plotting
+# ---------------------------------------------------------------------------
+def _shell_results(shell_link_bridge):
+    """Helper: run a point load on a shell_beam model and return results."""
+    og.ops.wipeAnalysis()
+    model = shell_link_bridge
+    P = 20e3
+    pt = og.create_load_vertex(x=4.5, y=0, z=6.5, p=P)
+    load = og.create_load(loadtype="point", name="single point", point1=pt)
+    lc = og.create_load_case(name="pointload")
+    lc.add_load(load)
+    model.add_load_case(lc)
+    model.analyze()
+    return model.get_results()
+
+
+def test_extract_shell_contour_data(shell_link_bridge):
+    """_extract_shell_contour_data returns correct structure."""
+    result = _shell_results(shell_link_bridge)
+    from ospgrillage.postprocessing import _extract_shell_contour_data
+
+    node_values, element_quads = _extract_shell_contour_data(result, "Mx")
+    assert len(node_values) > 0
+    assert all(isinstance(v, float) for v in node_values.values())
+    assert len(element_quads) > 0
+    assert all(len(q) >= 3 for q in element_quads)
+
+
+def test_extract_shell_contour_all_components(shell_link_bridge):
+    """All 6 components extract without error."""
+    result = _shell_results(shell_link_bridge)
+    from ospgrillage.postprocessing import _extract_shell_contour_data
+
+    for comp in ("Vx", "Vy", "Vz", "Mx", "My", "Mz"):
+        node_values, element_quads = _extract_shell_contour_data(result, comp)
+        assert len(node_values) > 0
+
+
+def test_extract_shell_contour_invalid_component(shell_link_bridge):
+    """Invalid component raises ValueError."""
+    result = _shell_results(shell_link_bridge)
+    from ospgrillage.postprocessing import _extract_shell_contour_data
+
+    with pytest.raises(ValueError, match="Unknown"):
+        _extract_shell_contour_data(result, "Fxx")
+
+
+def test_triangulate_shell_mesh():
+    """Triangulation of a single quad produces 4 vertices and 2 triangles."""
+    from ospgrillage.postprocessing import _triangulate_shell_mesh
+
+    node_coords = {1: [0, 0, 0], 2: [1, 0, 0], 3: [1, 0, 1], 4: [0, 0, 1]}
+    quads = [(1, 2, 3, 4)]
+    vx, vy, vz, i_idx, j_idx, k_idx, tag_map = _triangulate_shell_mesh(
+        node_coords, quads
+    )
+    assert len(vx) == 4
+    assert len(i_idx) == 2
+    assert len(tag_map) == 4
+
+
+def test_plot_shell_contour_plotly(shell_link_bridge):
+    """plot_shell_contour with plotly backend returns a Figure with Mesh3d."""
+    go = pytest.importorskip("plotly.graph_objects")
+    result = _shell_results(shell_link_bridge)
+    fig = og.plot_shell_contour(result, "Mx", backend="plotly", show=False)
+    assert isinstance(fig, go.Figure)
+    mesh_traces = [t for t in fig.data if isinstance(t, go.Mesh3d)]
+    assert len(mesh_traces) >= 1
+    assert mesh_traces[0].intensity is not None
+
+
+def test_plot_shell_contour_mpl(shell_link_bridge):
+    """plot_shell_contour with matplotlib backend returns Axes."""
+    import matplotlib.pyplot as plt
+
+    result = _shell_results(shell_link_bridge)
+    ax = og.plot_shell_contour(result, "Mx", backend="matplotlib")
+    assert isinstance(ax, plt.Axes)
+    plt.close("all")
+
+
+def test_plot_shell_contour_beam_only_raises(bridge_model_42_negative):
+    """Calling plot_shell_contour on a beam-only dataset raises ValueError."""
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+    front_wheel = og.PointLoad(
+        name="front wheel", point1=og.LoadPoint(7.5, 0, 4.5, 160e3)
+    )
+    lc = og.create_load_case(name="Point")
+    lc.add_load(front_wheel)
+    bridge.add_load_case(lc)
+    bridge.analyze()
+    result = bridge.get_results()
+    with pytest.raises(ValueError, match="shell"):
+        og.plot_shell_contour(result, "Mx")
+
+
+def test_plot_shell_contour_custom_colorscale(shell_link_bridge):
+    """Custom colorscale is applied to the Mesh3d trace."""
+    go = pytest.importorskip("plotly.graph_objects")
+    result = _shell_results(shell_link_bridge)
+    fig = og.plot_shell_contour(
+        result, "Mx", backend="plotly", show=False, colorscale="Viridis"
+    )
+    mesh = [t for t in fig.data if isinstance(t, go.Mesh3d)][0]
+    assert mesh.colorscale is not None
+
+
+def test_shell_contour_coexistence_with_bmd(shell_link_bridge):
+    """Shell contour and BMD can coexist on one Plotly figure."""
+    go = pytest.importorskip("plotly.graph_objects")
+    result = _shell_results(shell_link_bridge)
+    proxy = og.model_proxy_from_results(result)
+    fig = og.plot_shell_contour(result, "Mx", backend="plotly", show=False)
+    fig2 = og.plot_bmd(
+        proxy, result, backend="plotly", show=False, show_supports=False, ax=fig
+    )
+    assert fig2 is fig
+    has_mesh = any(isinstance(t, go.Mesh3d) for t in fig.data)
+    has_scatter = any(isinstance(t, go.Scatter3d) for t in fig.data)
+    assert has_mesh and has_scatter

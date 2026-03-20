@@ -30,6 +30,7 @@ __all__ = [
     "plot_tmd",
     "plot_def",
     "plot_model",
+    "plot_shell_contour",
 ]
 
 
@@ -316,6 +317,16 @@ _FORCE_COMPONENTS = [
     "Mz_j",
 ]
 
+# Shell contour component lookup.  Each shell element has 24 force
+# components (6 per node x 4 nodes i/j/k/l).  The mapping below
+# resolves a user-facing component name to the 4 column names in
+# ``forces_shell`` aligned with the ``ele_nodes_shell`` Nodes dimension.
+_SHELL_COMPONENTS = ("Vx", "Vy", "Vz", "Mx", "My", "Mz")
+_SHELL_COMP_COLUMNS = {
+    comp: [f"{comp}_{s}" for s in ("i", "j", "k", "l")]
+    for comp in _SHELL_COMPONENTS
+}
+
 
 # ---------------------------------------------------------------------------
 # Data extraction helpers (backend-agnostic)
@@ -484,6 +495,133 @@ def _extract_def_data(
         values_list.append(float(disp))
 
     return xx_list, zz_list, values_list
+
+
+# ---------------------------------------------------------------------------
+# Shell contour data extraction
+# ---------------------------------------------------------------------------
+def _extract_shell_contour_data(result_obj, component, loadcase=None, *, averaging="nodal"):
+    """Extract per-node contour values for a shell stress resultant.
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+        Results dataset containing ``forces_shell`` and ``ele_nodes_shell``.
+    component : str
+        One of ``"Vx"``, ``"Vy"``, ``"Vz"``, ``"Mx"``, ``"My"``, ``"Mz"``.
+    loadcase : str or None
+        Load case name.  ``None`` uses the first load case.
+    averaging : str
+        ``"nodal"`` (default) — average contributions from all elements
+        sharing a node.  Future: ``"none"`` for raw per-element values.
+
+    Returns
+    -------
+    node_values : dict[int, float]
+        ``{node_tag: averaged_value}``
+    element_quads : list[tuple[int, ...]]
+        Each entry is the node tags of a shell element (3 or 4 nodes).
+    """
+    if component not in _SHELL_COMPONENTS:
+        raise ValueError(
+            f"Unknown shell component {component!r}. "
+            f"Expected one of {_SHELL_COMPONENTS}."
+        )
+
+    columns = _SHELL_COMP_COLUMNS[component]
+    forces = result_obj["forces_shell"]
+    ele_nodes = result_obj["ele_nodes_shell"]
+
+    # Select loadcase
+    if loadcase is not None:
+        forces = forces.sel(Loadcase=loadcase)
+    else:
+        forces = forces.isel(Loadcase=0)
+
+    # Build element connectivity and per-node accumulator
+    from collections import defaultdict
+
+    accum = defaultdict(list)  # node_tag -> [value, ...]
+    element_quads = []
+
+    for ele in ele_nodes.coords["Element"].values:
+        tags_raw = ele_nodes.sel(Element=ele).values.flatten()
+        tags = [int(t) for t in tags_raw if not np.isnan(t)]
+        if len(tags) < 3:
+            continue
+        element_quads.append(tuple(tags))
+
+        # Extract the component value at each node of this element
+        col_subset = columns[: len(tags)]
+        vals = forces.sel(Element=ele, Component=col_subset).values.flatten()
+        for tag, val in zip(tags, vals):
+            accum[tag].append(float(val))
+
+    if averaging == "nodal":
+        node_values = {tag: np.mean(vals) for tag, vals in accum.items()}
+    else:
+        # Fallback: nodal averaging (extensible for "none", "centroid")
+        node_values = {tag: np.mean(vals) for tag, vals in accum.items()}
+
+    return node_values, element_quads
+
+
+def _triangulate_shell_mesh(node_coords, element_quads):
+    """Build deduplicated vertex arrays and triangle indices.
+
+    Each quad is split into two triangles.  Shared nodes get a single
+    vertex so that Plotly ``Mesh3d`` ``intensity`` interpolates smoothly.
+
+    Parameters
+    ----------
+    node_coords : dict[int, sequence]
+        ``{node_tag: [x, y, z]}`` in model coordinates.
+    element_quads : list[tuple[int, ...]]
+        Shell element connectivity (3- or 4-node).
+
+    Returns
+    -------
+    vx, vy, vz : list[float]
+        Vertex coordinates in Plotly convention
+        (model x -> plotly x, model z -> plotly y, -model y -> plotly z).
+    i_idx, j_idx, k_idx : list[int]
+        Triangle vertex indices.
+    tag_to_vidx : dict[int, int]
+        ``{node_tag: vertex_index}`` for building the intensity array.
+    """
+    # Collect unique nodes in a deterministic order
+    seen = {}
+    ordered_tags = []
+    for quad in element_quads:
+        for tag in quad:
+            if tag not in seen:
+                seen[tag] = len(ordered_tags)
+                ordered_tags.append(tag)
+    tag_to_vidx = seen
+
+    # Vertex arrays in Plotly convention
+    vx, vy, vz = [], [], []
+    for tag in ordered_tags:
+        c = node_coords[tag]
+        vx.append(c[0])       # model x -> plotly x
+        vy.append(c[2])       # model z -> plotly y
+        vz.append(-c[1])      # model y -> plotly z (negated)
+
+    # Triangle indices (each quad -> 2 triangles)
+    i_idx, j_idx, k_idx = [], [], []
+    for quad in element_quads:
+        idxs = [tag_to_vidx[t] for t in quad]
+        if len(idxs) == 4:
+            # Quad: (0,1,2) and (0,2,3)
+            i_idx.extend([idxs[0], idxs[0]])
+            j_idx.extend([idxs[1], idxs[2]])
+            k_idx.extend([idxs[2], idxs[3]])
+        elif len(idxs) == 3:
+            i_idx.append(idxs[0])
+            j_idx.append(idxs[1])
+            k_idx.append(idxs[2])
+
+    return vx, vy, vz, i_idx, j_idx, k_idx, tag_to_vidx
 
 
 # ---------------------------------------------------------------------------
@@ -951,9 +1089,214 @@ def _plotly_3d_def(
     return fig
 
 
+def _plotly_3d_shell_contour(
+    result_obj,
+    component,
+    loadcase=None,
+    *,
+    fig=None,
+    figsize=None,
+    title=_AUTO,
+    colorscale="RdBu_r",
+    show_colorbar=True,
+    opacity=1.0,
+    averaging="nodal",
+):
+    """Build a Plotly ``Mesh3d`` contour of a shell stress resultant.
+
+    The returned figure can be passed as ``fig=`` to
+    :func:`_plotly_3d_force` or the ``plot_bmd`` family to overlay beam
+    force diagrams on top of the shell contour.
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+        Results dataset containing ``forces_shell``, ``ele_nodes_shell``,
+        and ``node_coordinates``.
+    component : str
+        ``"Vx"``, ``"Vy"``, ``"Vz"``, ``"Mx"``, ``"My"``, or ``"Mz"``.
+    loadcase : str or None
+        Load case name.  ``None`` uses the first load case.
+    fig : plotly.graph_objects.Figure or None
+        Existing figure to add the contour to.
+    figsize : tuple or None
+        ``(width, height)`` in inches.
+    title : str, None, or _AUTO
+        Plot title.
+    colorscale : str
+        Any valid Plotly colorscale name.
+    show_colorbar : bool
+        Show colour bar legend.
+    opacity : float
+        Surface opacity (0–1).
+    averaging : str
+        Nodal averaging method (see :func:`_extract_shell_contour_data`).
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+    """
+    go = _import_plotly()
+    new_fig = fig is None
+    if new_fig:
+        fig = go.Figure()
+
+    # Extract data
+    node_values, element_quads = _extract_shell_contour_data(
+        result_obj, component, loadcase, averaging=averaging,
+    )
+
+    # Build node coordinate dict from Dataset
+    coords_da = result_obj["node_coordinates"]
+    node_coords = {}
+    for tag in coords_da.coords["Node"].values:
+        node_coords[int(tag)] = coords_da.sel(Node=tag).values.tolist()
+
+    # Triangulate
+    vx, vy, vz, i_idx, j_idx, k_idx, tag_to_vidx = _triangulate_shell_mesh(
+        node_coords, element_quads,
+    )
+
+    # Build intensity array aligned with vertex order
+    intensity = [0.0] * len(vx)
+    for tag, vidx in tag_to_vidx.items():
+        intensity[vidx] = node_values.get(tag, 0.0)
+
+    fig.add_trace(
+        go.Mesh3d(
+            x=vx,
+            y=vy,
+            z=vz,
+            i=i_idx,
+            j=j_idx,
+            k=k_idx,
+            intensity=intensity,
+            colorscale=colorscale,
+            colorbar=dict(title=component) if show_colorbar else None,
+            showscale=show_colorbar,
+            opacity=opacity,
+            name=f"shell_{component}",
+            hovertemplate=f"{component}: %{{intensity:.3g}}<extra></extra>",
+        )
+    )
+
+    # Layout — only apply when creating a new figure
+    if new_fig:
+        _no_bg = dict(showbackground=False)
+        layout_kw = dict(
+            scene=dict(
+                xaxis=dict(title="x (m)", **_no_bg),
+                yaxis=dict(title="z (m)", **_no_bg),
+                zaxis=dict(title="y (m)", **_no_bg),
+                aspectmode="data",
+            ),
+        )
+        if title is _AUTO:
+            layout_kw["title"] = f"Shell Contour — {component}"
+        elif title is not None:
+            layout_kw["title"] = title
+        if figsize is not None:
+            layout_kw["width"] = figsize[0] * 100
+            layout_kw["height"] = figsize[1] * 100
+        fig.update_layout(**layout_kw)
+
+    return fig
+
+
 # ---------------------------------------------------------------------------
 # Matplotlib plotting functions
 # ---------------------------------------------------------------------------
+def _plot_shell_contour_mpl(
+    result_obj,
+    component,
+    loadcase=None,
+    *,
+    ax=None,
+    figsize=None,
+    title=_AUTO,
+    cmap="RdBu_r",
+    show_colorbar=True,
+    averaging="nodal",
+):
+    """Plot a 2-D plan-view filled contour of a shell stress resultant.
+
+    Uses :class:`matplotlib.tri.Triangulation` and
+    :meth:`~matplotlib.axes.Axes.tripcolor` with Gouraud shading.
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+    component : str
+    loadcase : str or None
+    ax : matplotlib.axes.Axes or None
+    figsize : tuple or None
+    title : str, None, or _AUTO
+    cmap : str
+        Matplotlib colormap name.
+    show_colorbar : bool
+    averaging : str
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+    """
+    import matplotlib.tri as mtri
+
+    node_values, element_quads = _extract_shell_contour_data(
+        result_obj, component, loadcase, averaging=averaging,
+    )
+
+    # Build node coordinate dict
+    coords_da = result_obj["node_coordinates"]
+    node_coords = {}
+    for tag in coords_da.coords["Node"].values:
+        node_coords[int(tag)] = coords_da.sel(Node=tag).values.tolist()
+
+    # Collect unique node tags in stable order and build index mapping
+    seen = {}
+    ordered_tags = []
+    for quad in element_quads:
+        for tag in quad:
+            if tag not in seen:
+                seen[tag] = len(ordered_tags)
+                ordered_tags.append(tag)
+
+    # 2D plan view: model x, model z
+    x_arr = np.array([node_coords[t][0] for t in ordered_tags])
+    z_arr = np.array([node_coords[t][2] for t in ordered_tags])
+    vals = np.array([node_values.get(t, 0.0) for t in ordered_tags])
+
+    # Build triangle list
+    triangles = []
+    for quad in element_quads:
+        idxs = [seen[t] for t in quad]
+        if len(idxs) == 4:
+            triangles.append([idxs[0], idxs[1], idxs[2]])
+            triangles.append([idxs[0], idxs[2], idxs[3]])
+        elif len(idxs) == 3:
+            triangles.append([idxs[0], idxs[1], idxs[2]])
+    triangles = np.array(triangles, dtype=int)
+
+    tri = mtri.Triangulation(x_arr, z_arr, triangles)
+
+    if ax is None:
+        _fig, ax = plt.subplots(figsize=figsize)
+
+    tc = ax.tripcolor(tri, vals, cmap=cmap, shading="gouraud")
+    if show_colorbar:
+        ax.get_figure().colorbar(tc, ax=ax, label=component)
+
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("z (m)")
+    ax.set_aspect("equal")
+    if title is _AUTO:
+        ax.set_title(f"Shell Contour — {component}")
+    elif title is not None:
+        ax.set_title(title)
+
+    return ax
+
+
 def plot_force(
     ospgrillage_obj,
     result_obj=None,
@@ -1624,6 +1967,109 @@ def plot_tmd(
         except (ValueError, KeyError, IndexError):
             pass
     return figs
+
+
+# ---------------------------------------------------------------------------
+# Shell contour convenience wrapper
+# ---------------------------------------------------------------------------
+def plot_shell_contour(
+    result_obj,
+    component="Mx",
+    loadcase=None,
+    backend="plotly",
+    **kwargs,
+):
+    """Plot a filled contour of a shell stress resultant.
+
+    Visualises one of the six stress resultant components (Vx, Vy, Vz,
+    Mx, My, Mz) over the shell element mesh.  For ``shell_beam`` models
+    this shows the deck slab response.
+
+    The contour can be composed with beam force diagrams::
+
+        fig = og.plot_shell_contour(results, "Mx", backend="plotly", show=False)
+        og.plot_bmd(proxy, results, backend="plotly", ax=fig)
+
+    :param result_obj: xarray Dataset of results (must contain
+        ``forces_shell``, ``ele_nodes_shell``, and ``node_coordinates``).
+    :type result_obj: xarray.Dataset
+    :param component: Stress resultant component.  One of ``"Vx"``,
+        ``"Vy"``, ``"Vz"``, ``"Mx"``, ``"My"``, or ``"Mz"``.
+    :type component: str
+    :param loadcase: Load case name.  ``None`` uses the first.
+    :type loadcase: str or None
+    :param backend: ``"plotly"`` (3-D, default) or ``"matplotlib"`` (2-D).
+    :type backend: str
+    :param colorscale: Plotly colorscale name (plotly) or matplotlib cmap
+        name (matplotlib).  Default ``"RdBu_r"``.
+    :type colorscale: str
+    :param show: Display the plot immediately.  Default ``True`` (plotly)
+        or ``False`` (matplotlib).
+    :type show: bool
+    :param \\**kwargs: Forwarded to the backend renderer.  Accepted keys
+        include *figsize*, *title*, *opacity*, *show_colorbar*, *averaging*,
+        and *ax*/*fig* for composing onto an existing figure.
+    :returns: Plotly ``Figure`` (``None`` when ``show=True``) or
+        matplotlib ``Axes``.
+    :raises ValueError: If the dataset has no shell element data.
+    """
+    if "forces_shell" not in result_obj or "ele_nodes_shell" not in result_obj:
+        raise ValueError(
+            "Dataset does not contain shell element results. "
+            "plot_shell_contour() requires a shell_beam model."
+        )
+    if "node_coordinates" not in result_obj:
+        raise ValueError(
+            "Dataset does not contain 'node_coordinates'. "
+            "Re-generate results with the latest ospgrillage."
+        )
+
+    if backend == "plotly":
+        show = kwargs.pop("show", True)
+        plotly_kw = {
+            k: v
+            for k, v in kwargs.items()
+            if k
+            in (
+                "figsize",
+                "title",
+                "colorscale",
+                "show_colorbar",
+                "opacity",
+                "averaging",
+            )
+        }
+        # Accept 'ax' as alias for 'fig' (matches plot_bmd pattern)
+        plotly_kw["fig"] = kwargs.get("ax", kwargs.get("fig", None))
+        fig = _plotly_3d_shell_contour(
+            result_obj,
+            component,
+            loadcase,
+            **plotly_kw,
+        )
+        if show:
+            _show_plotly_fig(fig)
+            return None
+        return fig
+
+    # matplotlib path
+    mpl_kw = {
+        k: v
+        for k, v in kwargs.items()
+        if k in ("ax", "figsize", "title", "show_colorbar", "averaging")
+    }
+    # Map 'colorscale' -> 'cmap' for matplotlib
+    mpl_kw["cmap"] = kwargs.get("colorscale", kwargs.get("cmap", "RdBu_r"))
+    show = kwargs.get("show", False)
+    ax = _plot_shell_contour_mpl(
+        result_obj,
+        component,
+        loadcase,
+        **mpl_kw,
+    )
+    if show:
+        plt.show()
+    return ax
 
 
 # ---------------------------------------------------------------------------
