@@ -335,6 +335,13 @@ _SHELL_COMP_COLUMNS = {
     for comp in _SHELL_COMPONENTS
 }
 
+# Displacement components for shell contour.  User-facing names map to
+# the Component coordinate in the ``displacements`` DataArray.
+_DISP_COMPONENTS = {"Dx": "x", "Dy": "y", "Dz": "z"}
+
+# All components accepted by plot_srf
+_SRF_COMPONENTS = _SHELL_COMPONENTS + tuple(_DISP_COMPONENTS.keys())
+
 
 # ---------------------------------------------------------------------------
 # Data extraction helpers (backend-agnostic)
@@ -570,6 +577,55 @@ def _extract_shell_contour_data(result_obj, component, loadcase=None, *, averagi
     else:
         # Fallback: nodal averaging (extensible for "none", "centroid")
         node_values = {tag: np.mean(vals) for tag, vals in accum.items()}
+
+    return node_values, element_quads
+
+
+def _extract_shell_disp_data(result_obj, component, loadcase=None):
+    """Extract per-node displacement values over the shell mesh.
+
+    Unlike force data, displacements are already per-node so no
+    averaging is needed — just filter to the nodes that belong to
+    shell elements.
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+    component : str
+        One of ``"Dx"``, ``"Dy"``, ``"Dz"``.
+    loadcase : str or None
+
+    Returns
+    -------
+    node_values : dict[int, float]
+    element_quads : list[tuple[int, ...]]
+    """
+    ds_comp = _DISP_COMPONENTS[component]
+    disps = result_obj["displacements"]
+    ele_nodes = result_obj["ele_nodes_shell"]
+
+    # Select loadcase
+    if loadcase is not None:
+        disps = disps.sel(Loadcase=loadcase)
+    else:
+        disps = disps.isel(Loadcase=0)
+
+    # Build element connectivity (same as force extraction)
+    element_quads = []
+    shell_node_set = set()
+    for ele in ele_nodes.coords["Element"].values:
+        tags_raw = ele_nodes.sel(Element=ele).values.flatten()
+        tags = [int(t) for t in tags_raw if not np.isnan(t)]
+        if len(tags) < 3:
+            continue
+        element_quads.append(tuple(tags))
+        shell_node_set.update(tags)
+
+    # Extract displacement at each shell node
+    node_values = {}
+    for tag in shell_node_set:
+        val = float(disps.sel(Node=tag, Component=ds_comp).values)
+        node_values[tag] = val
 
     return node_values, element_quads
 
@@ -1153,10 +1209,15 @@ def _plotly_3d_shell_contour(
     if new_fig:
         fig = go.Figure()
 
-    # Extract data
-    node_values, element_quads = _extract_shell_contour_data(
-        result_obj, component, loadcase, averaging=averaging,
-    )
+    # Extract data — dispatch to force or displacement extraction
+    if component in _DISP_COMPONENTS:
+        node_values, element_quads = _extract_shell_disp_data(
+            result_obj, component, loadcase,
+        )
+    else:
+        node_values, element_quads = _extract_shell_contour_data(
+            result_obj, component, loadcase, averaging=averaging,
+        )
 
     # Build node coordinate dict from Dataset
     coords_da = result_obj["node_coordinates"]
@@ -1258,9 +1319,14 @@ def _plot_shell_contour_mpl(
     """
     import matplotlib.tri as mtri
 
-    node_values, element_quads = _extract_shell_contour_data(
-        result_obj, component, loadcase, averaging=averaging,
-    )
+    if component in _DISP_COMPONENTS:
+        node_values, element_quads = _extract_shell_disp_data(
+            result_obj, component, loadcase,
+        )
+    else:
+        node_values, element_quads = _extract_shell_contour_data(
+            result_obj, component, loadcase, averaging=averaging,
+        )
 
     # Build node coordinate dict
     coords_da = result_obj["node_coordinates"]
@@ -2029,11 +2095,20 @@ def plot_srf(
         matplotlib ``Axes``.
     :raises ValueError: If the dataset has no shell element data.
     """
-    if "forces_shell" not in result_obj or "ele_nodes_shell" not in result_obj:
+    if component not in _SRF_COMPONENTS:
+        raise ValueError(
+            f"Unknown component {component!r}. "
+            f"Expected one of {_SRF_COMPONENTS}."
+        )
+    if "ele_nodes_shell" not in result_obj:
         raise ValueError(
             "Dataset does not contain shell element results. "
             "plot_srf() requires a shell_beam model."
         )
+    if component in _DISP_COMPONENTS and "displacements" not in result_obj:
+        raise ValueError("Dataset does not contain 'displacements'.")
+    if component in _SHELL_COMPONENTS and "forces_shell" not in result_obj:
+        raise ValueError("Dataset does not contain 'forces_shell'.")
     if "node_coordinates" not in result_obj:
         raise ValueError(
             "Dataset does not contain 'node_coordinates'. "

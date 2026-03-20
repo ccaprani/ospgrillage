@@ -753,16 +753,17 @@ class ResultsControlWidget(QWidget):
         self.contour_group = QGroupBox("Shell Contour")
         contour_layout = QFormLayout()
         self.contour_component_combo = QComboBox()
-        for comp in ("Mx", "My", "Mz", "Vx", "Vy", "Vz"):
+        for comp in ("Mx", "My", "Mz", "Vx", "Vy", "Vz", "Dx", "Dy", "Dz"):
             self.contour_component_combo.addItem(comp)
         contour_layout.addRow("Component:", self.contour_component_combo)
         self.contour_colorscale_combo = QComboBox()
         for cs in ("RdBu_r", "Viridis", "Plasma", "Cividis", "Turbo"):
             self.contour_colorscale_combo.addItem(cs)
         contour_layout.addRow("Colorscale:", self.contour_colorscale_combo)
-        self.contour_overlay_beams = QCheckBox("Overlay beam BMD")
-        self.contour_overlay_beams.setChecked(False)
-        contour_layout.addRow(self.contour_overlay_beams)
+        self.contour_overlay_combo = QComboBox()
+        for ov in ("None", "BMD", "SFD", "TMD", "Deflection"):
+            self.contour_overlay_combo.addItem(ov)
+        contour_layout.addRow("Overlay:", self.contour_overlay_combo)
         self.contour_group.setLayout(contour_layout)
         self.contour_group.setVisible(False)  # shown only for shell_beam
         layout.addWidget(self.contour_group)
@@ -1109,7 +1110,7 @@ class BridgeAnalysisGUI(QMainWindow):
         self.results_panel.contour_colorscale_combo.currentIndexChanged.connect(
             self._on_results_control_changed
         )
-        self.results_panel.contour_overlay_beams.stateChanged.connect(
+        self.results_panel.contour_overlay_combo.currentIndexChanged.connect(
             self._on_results_control_changed
         )
         self.results_panel.btn_back.clicked.connect(self._switch_to_wizard)
@@ -1724,8 +1725,16 @@ from math import *
                     show=False,
                     colorscale=cs,
                 )
-                if self.results_panel.contour_overlay_beams.isChecked():
-                    fig = og.plot_bmd(
+                overlay = self.results_panel.contour_overlay_combo.currentText()
+                _OVERLAY_FN = {
+                    "BMD": og.plot_bmd,
+                    "SFD": og.plot_sfd,
+                    "TMD": og.plot_tmd,
+                    "Deflection": og.plot_def,
+                }
+                overlay_fn = _OVERLAY_FN.get(overlay)
+                if overlay_fn is not None:
+                    fig = overlay_fn(
                         self._model_proxy,
                         self._results,
                         members=members,
