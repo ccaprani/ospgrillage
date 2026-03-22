@@ -34,6 +34,10 @@ The Dataset contains five named **data variables**:
 
 For a {ref}`shell-hybrid-model`, forces are split into `forces_beam` / `forces_shell`
 and element connectivity into `ele_nodes_beam` / `ele_nodes_shell`.
+Additionally, `stresses_shell` (Loadcase x Element x Stress) contains
+shell section stress resultants at 4 Gauss points — 8 components per
+point (N11, N22, N12, M11, M22, M12, Q13, Q23) giving 32 values per
+element.  See {ref}`plot-srf` for visualisation.
 
 Printing `all_result` shows the structure:
 
@@ -405,3 +409,166 @@ Each returns a single [Plotly](https://plotly.com/python/) `Figure` that
 renders interactively in Jupyter notebooks and in browser windows from the
 terminal.  The figure can be further customised using the standard Plotly
 API.  The GUI auto-detects plotly and uses it by default when available.
+
+(plot-srf)=
+## Shell contour plots (`plot_srf`)
+
+For `shell_beam` models, {func}`~ospgrillage.postprocessing.plot_srf`
+renders contour plots over the shell mesh.  It supports three families of
+component:
+
+| Family | Components | Description |
+|---|---|---|
+| **Shell forces** | `Vx`, `Vy`, `Vz`, `Mx`, `My`, `Mz` | Element end forces averaged to nodes |
+| **Displacements** | `Dx`, `Dy`, `Dz` | Nodal translations (x, y, z) |
+| **Stress resultants** | `N11`, `N22`, `N12`, `M11`, `M22`, `M12`, `Q13`, `Q23` | Section stress resultants averaged from Gauss points |
+
+```{note}
+`plot_srf` requires a `shell_beam` model.  The results Dataset must
+contain `ele_nodes_shell` and `node_coordinates`.  Stress resultant
+components additionally require `stresses_shell` (generated automatically
+by ospgrillage ≥ 0.6.0).
+```
+
+### Basic usage
+
+`plot_srf` takes a results Dataset (not a grillage object) as its first
+argument:
+
+```python
+results = bridge.get_results(save_filename="bridge_results.nc")
+
+# Shell bending moment about the x-axis
+og.plot_srf(results, component="Mx")
+
+# Vertical displacement contour
+og.plot_srf(results, component="Dy")
+
+# Membrane force N11 (stress resultant)
+og.plot_srf(results, component="N11")
+```
+
+### Choosing a loadcase
+
+By default the first loadcase is plotted.  Pass `loadcase=` to select a
+specific one:
+
+```python
+og.plot_srf(results, component="Mx", loadcase="Dead Load")
+```
+
+### Shell force components
+
+Shell element end forces (`Vx`–`Mz`) are extracted from `forces_shell`
+and averaged at shared nodes:
+
+```python
+og.plot_srf(results, "Mx")   # bending moment about x
+og.plot_srf(results, "Vy")   # shear force in y
+og.plot_srf(results, "Mz")   # torsion
+```
+
+### Displacement components
+
+Displacement contours (`Dx`, `Dy`, `Dz`) are read directly from the
+nodal `displacements` array:
+
+```python
+og.plot_srf(results, "Dy")                              # vertical deflection
+og.plot_srf(results, "Dy", colorscale="Viridis")        # sequential palette
+```
+
+```{tip}
+Use a **sequential** colorscale like `Viridis` for displacements
+(single-sign data) and a **diverging** colorscale like `RdBu_r`
+(the default) for forces and stress resultants (signed data that
+crosses zero).
+```
+
+### Stress resultant components
+
+Shell section stress resultants are extracted via OpenSeesPy's
+`eleResponse(tag, "stresses")`, which returns 8 values at each of the
+4 Gauss points for a 4-node shell element:
+
+| Notation | Meaning |
+|---|---|
+| `N11` | Membrane force per unit length in local 1-direction |
+| `N22` | Membrane force per unit length in local 2-direction |
+| `N12` | In-plane shear force per unit length |
+| `M11` | Bending moment per unit length about local 2-axis |
+| `M22` | Bending moment per unit length about local 1-axis |
+| `M12` | Twisting moment per unit length |
+| `Q13` | Transverse shear force per unit length in 1–3 plane |
+| `Q23` | Transverse shear force per unit length in 2–3 plane |
+
+```python
+og.plot_srf(results, "M11")   # plate bending about local 2-axis
+og.plot_srf(results, "N11")   # membrane force in local 1-direction
+og.plot_srf(results, "Q13")   # transverse shear
+```
+
+### Composing shell contours with beam diagrams
+
+A common workflow is to overlay the beam BMD/SFD on top of a shell
+contour.  Pass the Plotly figure returned by `plot_srf` as the `ax=`
+argument to any beam plot function:
+
+```python
+# 1. Create the shell contour (show=False to keep the figure object)
+fig = og.plot_srf(results, "Mx", backend="plotly", show=False)
+
+# 2. Create a model proxy for beam plotting
+proxy = og.model_proxy_from_results(results)
+
+# 3. Overlay the BMD onto the same figure
+og.plot_bmd(proxy, results, backend="plotly", ax=fig)
+```
+
+This works with `plot_bmd`, `plot_sfd`, `plot_tmd`, and `plot_def`.
+
+### Colorscale guidance
+
+| Data type | Recommended colorscale | Why |
+|---|---|---|
+| Forces / moments (`Vx`–`Mz`) | `RdBu_r` (default) | Diverging — highlights sign change |
+| Stress resultants (`N11`–`Q23`) | `RdBu_r` (default) | Diverging — signed data |
+| Displacements (`Dx`, `Dy`, `Dz`) | `Viridis` | Sequential — typically single-sign |
+
+```python
+og.plot_srf(results, "Mx", colorscale="RdBu_r")     # diverging (default)
+og.plot_srf(results, "Dy", colorscale="Viridis")     # sequential
+og.plot_srf(results, "N11", colorscale="Plasma")     # alternative sequential
+```
+
+### Additional keyword arguments
+
+| Kwarg | Default | Description |
+|---|---|---|
+| `backend` | `"plotly"` | `"plotly"` for interactive 3-D or `"matplotlib"` for 2-D |
+| `colorscale` | `"RdBu_r"` | Plotly colorscale name (or matplotlib `cmap` name) |
+| `show_colorbar` | `True` | Display the colour bar legend |
+| `opacity` | `1.0` | Surface opacity (0–1) |
+| `show` | `True` (plotly) / `False` (mpl) | Display the figure immediately |
+| `ax` / `fig` | `None` | Existing Plotly `Figure` or matplotlib `Axes` to draw on |
+| `title` | auto | Custom title string, or `None` to suppress |
+| `figsize` | `None` | Figure size as `(width, height)` in inches |
+
+### Using the GUI shell contour tab
+
+When you open a `shell_beam` results file in the GUI
+(**File > Open Results (.nc)**), a **Shell Contour** tab appears
+alongside the BMD, SFD, TMD, and Deflection tabs.
+
+The results panel on the left provides three controls:
+
+1. **Component** — select any of the 17 available components
+   (`Mx`–`Mz`, `Dx`–`Dz`, `N11`–`Q23`)
+2. **Colorscale** — choose from `RdBu_r`, `Viridis`, `Plasma`,
+   `Cividis`, or `Turbo`
+3. **Overlay** — optionally composite a beam diagram (`BMD`, `SFD`,
+   `TMD`, or `Deflection`) on top of the shell contour
+
+The contour controls are greyed out when a non-contour tab is selected
+and automatically enabled when you switch to the Shell Contour tab.
+For non-shell models, the tab and controls are hidden entirely.
