@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from copy import deepcopy
 from datetime import datetime
 from itertools import combinations
+import json
 import logging
 import math
 from typing import List, Tuple, Union, TYPE_CHECKING
@@ -2262,6 +2263,67 @@ class OspGrillage:
         if self.diagnostics:
             logger.info("Load Combination: %s created", load_combination_name)
 
+    def _embed_geometry(self, ds):
+        """Add node coordinates and member-element mappings to a Dataset.
+
+        This makes saved ``.nc`` files self-contained so that plotting
+        functions can reconstruct the model geometry without the original
+        :class:`OspGrillage` object.
+        """
+        # --- node coordinates DataArray ---
+        node_spec = self.Mesh_obj.node_spec
+        node_tags = sorted(node_spec.keys())
+        coord_data = np.array(
+            [node_spec[n]["coordinate"] for n in node_tags]
+        )
+        ds["node_coordinates"] = xr.DataArray(
+            coord_data,
+            dims=("Node", "Axis"),
+            coords={"Node": node_tags, "Axis": ["x", "y", "z"]},
+        )
+
+        # --- member-element mapping (JSON attr) ---
+        _PLOT_MEMBERS = [
+            "edge_beam",
+            "exterior_main_beam_1",
+            "interior_main_beam",
+            "exterior_main_beam_2",
+            "start_edge",
+            "end_edge",
+            "transverse_slab",
+        ]
+        member_map = {}
+        for member in _PLOT_MEMBERS:
+            z_groups = self.common_grillage_element_z_group.get(member)
+            # transverse_slab is not in z_group dict but get_element()
+            # still works for it (uses Mesh_obj.trans_ele directly).
+            # Treat missing/None as a single implicit group.
+            n_groups = len(z_groups) if isinstance(z_groups, list) else 1
+            ele_groups = []
+            node_groups = []
+            for zg in range(n_groups):
+                try:
+                    ele_groups.append(
+                        self.get_element(
+                            member=member, options="elements", z_group_num=zg
+                        )
+                    )
+                except (KeyError, IndexError):
+                    ele_groups.append([])
+                try:
+                    nodes = self.get_element(
+                        member=member, options="nodes", z_group_num=zg
+                    )
+                    node_groups.append(nodes)
+                except (KeyError, IndexError):
+                    node_groups.append([])
+            member_map[member] = {"elements": ele_groups, "nodes": node_groups}
+
+        ds.attrs["member_elements"] = json.dumps(member_map)
+        ds.attrs["model_type"] = self.model_type
+
+        return ds
+
     def get_results(self, **kwargs):
         """
         Return analysis results as an xarray ``Dataset``.
@@ -2289,9 +2351,9 @@ class OspGrillage:
             combinations. Pass as a ``dict`` with load case name strings
             as keys and load factors (``int`` or ``float``) as values.
         :type combinations: dict, optional
-        :param save_file_name: File name for saving results to NetCDF
+        :param save_filename: File name for saving results to NetCDF
             format in the current working directory.
-        :type save_file_name: str, optional
+        :type save_filename: str, optional
         :returns: Xarray DataSet of analysis results.  If ``combinations``
             is provided, returns a list of DataSets, one per load
             combination.
@@ -2308,6 +2370,9 @@ class OspGrillage:
             local_force_option=local_force_flag,
             main_ele_tags=self.Mesh_obj.element_counter,
         )
+
+        # Embed geometry metadata so saved results are self-contained
+        basic_da = self._embed_geometry(basic_da)
 
         if isinstance(specific_load_case, str):
             specific_load_case = [specific_load_case]
@@ -2425,6 +2490,8 @@ class OspGrillage:
                 combination_array = factored_array.assign_coords(
                     Loadcase=coordinate_name_list
                 )
+            if save_filename:
+                combination_array.to_netcdf(save_filename)
             return combination_array
 
         else:
@@ -2727,6 +2794,7 @@ class Analysis:
         self.global_ele_force_shell = (
             dict()
         )  # ditto for global ele force except only for shells
+        self.ele_stresses = dict()  # shell stress resultants at Gauss points
         self.mesh_node_counter = node_counter  # set node counter based on current Mesh
         self.mesh_ele_counter = ele_counter  # set ele counter based on current Mesh
         # save deepcopy of load case object
@@ -2878,6 +2946,11 @@ class Analysis:
                 self.ele_force.setdefault(ele_tag, ele_force)
                 global_ele_force = ops.eleResponse(ele_tag, "forces")
                 self.global_ele_force.setdefault(ele_tag, global_ele_force)
+                # Shell stress resultants at Gauss points (32 values for
+                # 4-node shells: 8 per GP × 4 GPs).  Empty for beam elements.
+                ele_stress = ops.eleResponse(ele_tag, "stresses")
+                if ele_stress:
+                    self.ele_stresses.setdefault(ele_tag, ele_stress)
         else:
             logger.info(
                 "OspGrillage is at output mode (pyfile=True). Procedure for %s generated.",
@@ -2895,6 +2968,7 @@ class Results:
         # instantiate variables
         self.basic_load_case_record = dict()
         self.basic_load_case_record_global_forces = dict()
+        self.basic_load_case_record_stresses = dict()  # shell stress resultants
         self.moving_load_case_record = []
         self.moving_load_case_record_global_forces = []
         self.moving_load_counter = 0
@@ -2967,6 +3041,13 @@ class Results:
             "My_l",
             "Mz_l",
         ]
+        # Shell section stress resultants at Gauss points.
+        # 8 components per GP × 4 GPs = 32 per element.
+        _gp_labels = ["gp1", "gp2", "gp3", "gp4"]
+        _sr_labels = ["N11", "N22", "N12", "M11", "M22", "M12", "Q13", "Q23"]
+        self.stress_component_shell = [
+            f"{sr}_{gp}" for gp in _gp_labels for sr in _sr_labels
+        ]
         # dimension names
         self.dim = ["Loadcase", "Node", "Component"]
         self.dim2 = ["Loadcase", "Element", "Component"]
@@ -3035,6 +3116,16 @@ class Results:
                     ele_nodes_dict,
                 ],
             )
+
+            # Shell stress resultants (only for elements that returned stresses)
+            if analysis_obj.ele_stresses:
+                ele_stress_dict = {}
+                for ele_num, stresses in analysis_obj.ele_stresses.items():
+                    ele_stress_dict[ele_num] = stresses
+                self.basic_load_case_record_stresses.setdefault(
+                    analysis_obj.analysis_name, ele_stress_dict,
+                )
+
         # if moving load, input is a list of analysis obj
         elif list_of_inc_analysis:
             inc_load_case_record = dict()
@@ -3314,17 +3405,40 @@ class Results:
                     dims=[self.dim2[1], "Nodes"],
                     coords={self.dim2[1]: ele_tag_shell, "Nodes": self.dim_ele_shell},
                 )
-                result = xr.Dataset(
-                    {
-                        "displacements": basic_da_d,
-                        "velocity": basic_da_v,
-                        "acceleration": basic_da_a,
-                        "forces_beam": force_da_beam,
-                        "forces_shell": force_da_shell,
-                        "ele_nodes_beam": ele_nodes_beam,
-                        "ele_nodes_shell": ele_nodes_shell,
-                    }
-                )
+
+                # Shell stress resultants at Gauss points (32 per element)
+                ds_vars = {
+                    "displacements": basic_da_d,
+                    "velocity": basic_da_v,
+                    "acceleration": basic_da_a,
+                    "forces_beam": force_da_beam,
+                    "forces_shell": force_da_shell,
+                    "ele_nodes_beam": ele_nodes_beam,
+                    "ele_nodes_shell": ele_nodes_shell,
+                }
+                if self.basic_load_case_record_stresses:
+                    stress_list = []
+                    for lc_name in basic_load_case_coord:
+                        lc_stresses = self.basic_load_case_record_stresses.get(lc_name, {})
+                        lc_row = [
+                            lc_stresses.get(tag, [0.0] * 32)
+                            for tag in ele_tag_shell
+                        ]
+                        stress_list.append(lc_row)
+                    stress_array = np.array(stress_list)
+                    if stress_array.size:
+                        # Use "Stress" dimension (not "Component") to avoid
+                        # xarray auto-aligning with forces_shell's Component.
+                        ds_vars["stresses_shell"] = xr.DataArray(
+                            data=stress_array,
+                            dims=["Loadcase", "Element", "Stress"],
+                            coords={
+                                "Loadcase": basic_load_case_coord,
+                                "Element": ele_tag_shell,
+                                "Stress": self.stress_component_shell,
+                            },
+                        )
+                result = xr.Dataset(ds_vars)
             else:
                 force_da_beam = xr.DataArray(
                     data=force_array,

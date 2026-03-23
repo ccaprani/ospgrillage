@@ -8,6 +8,7 @@ module of OpenSeesPy - this module fills in gaps to
 """
 
 import enum
+import json
 import matplotlib.pyplot as plt
 import opsvis as opsv
 import numpy as np
@@ -22,13 +23,107 @@ __all__ = [
     "Members",
     "PostProcessor",
     "create_envelope",
+    "model_proxy_from_results",
     "plot_force",
     "plot_bmd",
     "plot_sfd",
     "plot_tmd",
     "plot_def",
     "plot_model",
+    "plot_srf",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Lightweight model proxy for standalone results files
+# ---------------------------------------------------------------------------
+class _ModelProxy:
+    """Reconstruct the model interface needed by plot functions from a Dataset.
+
+    When results are saved to NetCDF with
+    :meth:`~ospgrillage.osp_grillage.OspGrillage.get_results` the file
+    contains ``node_coordinates``, ``member_elements`` (JSON attr), and
+    ``model_type`` (attr).  This class wraps a loaded Dataset and exposes
+    the same ``get_nodes`` / ``get_element`` /
+    ``common_grillage_element_z_group`` interface that the plotting helpers
+    expect.
+    """
+
+    def __init__(self, ds):
+        self.model_type = ds.attrs.get("model_type", "beam_link")
+
+        # Build node_spec dict: {tag: {"coordinate": [x, y, z]}}
+        coords_da = ds["node_coordinates"]
+        self._node_spec = {}
+        for tag in coords_da.coords["Node"].values:
+            self._node_spec[int(tag)] = {
+                "coordinate": coords_da.sel(Node=tag).values.tolist()
+            }
+
+        # Build member-element mapping from JSON attr
+        self._members = json.loads(ds.attrs.get("member_elements", "{}"))
+
+        # Reconstruct common_grillage_element_z_group (member → list of
+        # z-group indices, e.g. {"interior_main_beam": [0, 1, 2]}).
+        self.common_grillage_element_z_group = {}
+        for member, info in self._members.items():
+            self.common_grillage_element_z_group[member] = list(
+                range(len(info["elements"]))
+            )
+
+    def get_nodes(self, number=None):
+        """Return node specification dict, or coordinates of a single node."""
+        if number:
+            return self._node_spec[number]["coordinate"]
+        return self._node_spec
+
+    def get_element(self, **kwargs):
+        """Return element tags or node tags for a member group."""
+        member = kwargs.get("member", None)
+        options = kwargs.get("options", "nodes")
+        z_group_num = kwargs.get("z_group_num", 0)
+
+        info = self._members.get(member, {"elements": [[]], "nodes": [[]]})
+        key = "elements" if options == "elements" else "nodes"
+        groups = info.get(key, [[]])
+        if z_group_num < len(groups):
+            return groups[z_group_num]
+        return []
+
+
+def model_proxy_from_results(ds):
+    """Create a lightweight model proxy from a self-contained results Dataset.
+
+    The proxy satisfies the interface required by plotting functions
+    (:func:`plot_bmd`, :func:`plot_sfd`, etc.) so that results saved to
+    NetCDF can be visualised without the original
+    :class:`~ospgrillage.osp_grillage.OspGrillage` object.
+
+    :param ds: Dataset loaded via ``xarray.open_dataset()``.  Must contain
+        a ``node_coordinates`` variable and ``member_elements`` /
+        ``model_type`` attributes (added automatically by
+        :meth:`~ospgrillage.osp_grillage.OspGrillage.get_results`).
+    :type ds: :class:`xarray.Dataset`
+    :returns: A proxy object with ``get_nodes()``, ``get_element()``, and
+        ``common_grillage_element_z_group`` matching the OspGrillage
+        interface.
+    :raises KeyError: If the Dataset is missing the required geometry data.
+
+    Example::
+
+        import xarray as xr
+        import ospgrillage as og
+
+        ds = xr.open_dataset("results.nc")
+        proxy = og.model_proxy_from_results(ds)
+        og.plot_bmd(proxy, ds, backend="plotly")
+    """
+    if "node_coordinates" not in ds:
+        raise KeyError(
+            "Dataset does not contain 'node_coordinates'. "
+            "Re-save results with ospgrillage >= 0.5.4 to include geometry."
+        )
+    return _ModelProxy(ds)
 
 
 # Sentinel for auto-generated titles.  ``title=_AUTO`` means "use the
@@ -54,23 +149,31 @@ def _import_plotly():
 
 
 def _show_plotly_fig(fig):
-    """Display a Plotly figure with output compatible with nbsphinx/Sphinx.
+    """Display a Plotly figure.
 
-    In a Jupyter/IPython session this emits ``text/html`` using
+    In a Jupyter *notebook* session this emits ``text/html`` using
     ``fig.to_html(include_plotlyjs="cdn")``.  The ``text/html`` MIME type
     is understood by *nbsphinx* so the interactive 3-D plot survives the
     Sphinx build and renders with full rotate/zoom/hover on the
     documentation pages (e.g. GitHub Pages).
 
-    Outside IPython the function falls back to ``fig.show()`` which opens
-    the system browser.
+    In an IPython terminal (no notebook) or outside IPython the function
+    falls back to ``fig.show()`` which opens the system browser.
     """
     try:
-        from IPython.display import display, HTML
+        from IPython import get_ipython
 
-        display(HTML(fig.to_html(include_plotlyjs="cdn", full_html=False)))
+        shell = get_ipython()
+        if shell is not None and shell.__class__.__name__ == "ZMQInteractiveShell":
+            # Jupyter notebook — use HTML display for nbsphinx compat
+            from IPython.display import display, HTML
+
+            display(HTML(fig.to_html(include_plotlyjs="cdn", full_html=False)))
+            return
     except ImportError:
-        fig.show()
+        pass
+    # IPython terminal or plain Python — open in browser
+    fig.show()
 
 
 def create_envelope(**kwargs):
@@ -221,6 +324,35 @@ _FORCE_COMPONENTS = [
     "My_j",
     "Mz_j",
 ]
+
+# Shell contour component lookup.  Each shell element has 24 force
+# components (6 per node x 4 nodes i/j/k/l).  The mapping below
+# resolves a user-facing component name to the 4 column names in
+# ``forces_shell`` aligned with the ``ele_nodes_shell`` Nodes dimension.
+_SHELL_COMPONENTS = ("Vx", "Vy", "Vz", "Mx", "My", "Mz")
+_SHELL_COMP_COLUMNS = {
+    comp: [f"{comp}_{s}" for s in ("i", "j", "k", "l")]
+    for comp in _SHELL_COMPONENTS
+}
+
+# Displacement components for shell contour.  User-facing names map to
+# the Component coordinate in the ``displacements`` DataArray.
+_DISP_COMPONENTS = {"Dx": "x", "Dy": "y", "Dz": "z"}
+
+# Shell section stress resultants (from Gauss-point data in stresses_shell).
+# User-facing name → list of 4 GP column names in the ``Stress`` dimension.
+_STRESS_RESULTANTS = ("N11", "N22", "N12", "M11", "M22", "M12", "Q13", "Q23")
+_STRESS_COMP_COLUMNS = {
+    sr: [f"{sr}_{gp}" for gp in ("gp1", "gp2", "gp3", "gp4")]
+    for sr in _STRESS_RESULTANTS
+}
+
+# All components accepted by plot_srf
+_SRF_COMPONENTS = (
+    _SHELL_COMPONENTS
+    + tuple(_DISP_COMPONENTS.keys())
+    + _STRESS_RESULTANTS
+)
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +525,239 @@ def _extract_def_data(
 
 
 # ---------------------------------------------------------------------------
+# Shell contour data extraction
+# ---------------------------------------------------------------------------
+def _extract_shell_contour_data(result_obj, component, loadcase=None, *, averaging="nodal"):
+    """Extract per-node contour values for a shell stress resultant.
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+        Results dataset containing ``forces_shell`` and ``ele_nodes_shell``.
+    component : str
+        One of ``"Vx"``, ``"Vy"``, ``"Vz"``, ``"Mx"``, ``"My"``, ``"Mz"``.
+    loadcase : str or None
+        Load case name.  ``None`` uses the first load case.
+    averaging : str
+        ``"nodal"`` (default) — average contributions from all elements
+        sharing a node.  Future: ``"none"`` for raw per-element values.
+
+    Returns
+    -------
+    node_values : dict[int, float]
+        ``{node_tag: averaged_value}``
+    element_quads : list[tuple[int, ...]]
+        Each entry is the node tags of a shell element (3 or 4 nodes).
+    """
+    if component not in _SHELL_COMPONENTS:
+        raise ValueError(
+            f"Unknown shell component {component!r}. "
+            f"Expected one of {_SHELL_COMPONENTS}."
+        )
+
+    columns = _SHELL_COMP_COLUMNS[component]
+    forces = result_obj["forces_shell"]
+    ele_nodes = result_obj["ele_nodes_shell"]
+
+    # Select loadcase
+    if loadcase is not None:
+        forces = forces.sel(Loadcase=loadcase)
+    else:
+        forces = forces.isel(Loadcase=0)
+
+    # Build element connectivity and per-node accumulator
+    from collections import defaultdict
+
+    accum = defaultdict(list)  # node_tag -> [value, ...]
+    element_quads = []
+
+    for ele in ele_nodes.coords["Element"].values:
+        tags_raw = ele_nodes.sel(Element=ele).values.flatten()
+        tags = [int(t) for t in tags_raw if not np.isnan(t)]
+        if len(tags) < 3:
+            continue
+        element_quads.append(tuple(tags))
+
+        # Extract the component value at each node of this element
+        col_subset = columns[: len(tags)]
+        vals = forces.sel(Element=ele, Component=col_subset).values.flatten()
+        for tag, val in zip(tags, vals):
+            accum[tag].append(float(val))
+
+    if averaging == "nodal":
+        node_values = {tag: np.mean(vals) for tag, vals in accum.items()}
+    else:
+        # Fallback: nodal averaging (extensible for "none", "centroid")
+        node_values = {tag: np.mean(vals) for tag, vals in accum.items()}
+
+    return node_values, element_quads
+
+
+def _extract_shell_disp_data(result_obj, component, loadcase=None):
+    """Extract per-node displacement values over the shell mesh.
+
+    Unlike force data, displacements are already per-node so no
+    averaging is needed — just filter to the nodes that belong to
+    shell elements.
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+    component : str
+        One of ``"Dx"``, ``"Dy"``, ``"Dz"``.
+    loadcase : str or None
+
+    Returns
+    -------
+    node_values : dict[int, float]
+    element_quads : list[tuple[int, ...]]
+    """
+    ds_comp = _DISP_COMPONENTS[component]
+    disps = result_obj["displacements"]
+    ele_nodes = result_obj["ele_nodes_shell"]
+
+    # Select loadcase
+    if loadcase is not None:
+        disps = disps.sel(Loadcase=loadcase)
+    else:
+        disps = disps.isel(Loadcase=0)
+
+    # Build element connectivity (same as force extraction)
+    element_quads = []
+    shell_node_set = set()
+    for ele in ele_nodes.coords["Element"].values:
+        tags_raw = ele_nodes.sel(Element=ele).values.flatten()
+        tags = [int(t) for t in tags_raw if not np.isnan(t)]
+        if len(tags) < 3:
+            continue
+        element_quads.append(tuple(tags))
+        shell_node_set.update(tags)
+
+    # Extract displacement at each shell node
+    node_values = {}
+    for tag in shell_node_set:
+        val = float(disps.sel(Node=tag, Component=ds_comp).values)
+        node_values[tag] = val
+
+    return node_values, element_quads
+
+
+def _extract_shell_stress_data(result_obj, component, loadcase=None):
+    """Extract per-node stress resultant values over the shell mesh.
+
+    The ``stresses_shell`` DataArray stores 8 stress resultants at 4
+    Gauss points per element.  This function averages the requested
+    component across the 4 Gauss points to get one value per element,
+    then averages contributions from neighbouring elements at shared
+    nodes (same approach as :func:`_extract_shell_contour_data`).
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+    component : str
+        One of ``"N11"``, ``"N22"``, ``"N12"``, ``"M11"``, ``"M22"``,
+        ``"M12"``, ``"Q13"``, ``"Q23"``.
+    loadcase : str or None
+
+    Returns
+    -------
+    node_values : dict[int, float]
+    element_quads : list[tuple[int, ...]]
+    """
+    from collections import defaultdict
+
+    columns = _STRESS_COMP_COLUMNS[component]
+    stresses = result_obj["stresses_shell"]
+    ele_nodes = result_obj["ele_nodes_shell"]
+
+    # Select loadcase
+    if loadcase is not None:
+        stresses = stresses.sel(Loadcase=loadcase)
+    else:
+        stresses = stresses.isel(Loadcase=0)
+
+    accum = defaultdict(list)
+    element_quads = []
+
+    for ele in ele_nodes.coords["Element"].values:
+        tags_raw = ele_nodes.sel(Element=ele).values.flatten()
+        tags = [int(t) for t in tags_raw if not np.isnan(t)]
+        if len(tags) < 3:
+            continue
+        element_quads.append(tuple(tags))
+
+        # Average across the 4 Gauss points for this element
+        gp_vals = stresses.sel(Element=ele, Stress=columns).values.flatten()
+        ele_avg = float(np.nanmean(gp_vals))
+
+        # Assign element average to each of its nodes
+        for tag in tags:
+            accum[tag].append(ele_avg)
+
+    # Average contributions from neighbouring elements at shared nodes
+    node_values = {tag: float(np.mean(vals)) for tag, vals in accum.items()}
+    return node_values, element_quads
+
+
+def _triangulate_shell_mesh(node_coords, element_quads):
+    """Build deduplicated vertex arrays and triangle indices.
+
+    Each quad is split into two triangles.  Shared nodes get a single
+    vertex so that Plotly ``Mesh3d`` ``intensity`` interpolates smoothly.
+
+    Parameters
+    ----------
+    node_coords : dict[int, sequence]
+        ``{node_tag: [x, y, z]}`` in model coordinates.
+    element_quads : list[tuple[int, ...]]
+        Shell element connectivity (3- or 4-node).
+
+    Returns
+    -------
+    vx, vy, vz : list[float]
+        Vertex coordinates in Plotly convention
+        (model x -> plotly x, model z -> plotly y, -model y -> plotly z).
+    i_idx, j_idx, k_idx : list[int]
+        Triangle vertex indices.
+    tag_to_vidx : dict[int, int]
+        ``{node_tag: vertex_index}`` for building the intensity array.
+    """
+    # Collect unique nodes in a deterministic order
+    seen = {}
+    ordered_tags = []
+    for quad in element_quads:
+        for tag in quad:
+            if tag not in seen:
+                seen[tag] = len(ordered_tags)
+                ordered_tags.append(tag)
+    tag_to_vidx = seen
+
+    # Vertex arrays in Plotly convention
+    vx, vy, vz = [], [], []
+    for tag in ordered_tags:
+        c = node_coords[tag]
+        vx.append(c[0])       # model x -> plotly x
+        vy.append(c[2])       # model z -> plotly y
+        vz.append(-c[1])      # model y -> plotly z (negated)
+
+    # Triangle indices (each quad -> 2 triangles)
+    i_idx, j_idx, k_idx = [], [], []
+    for quad in element_quads:
+        idxs = [tag_to_vidx[t] for t in quad]
+        if len(idxs) == 4:
+            # Quad: (0,1,2) and (0,2,3)
+            i_idx.extend([idxs[0], idxs[0]])
+            j_idx.extend([idxs[1], idxs[2]])
+            k_idx.extend([idxs[2], idxs[3]])
+        elif len(idxs) == 3:
+            i_idx.append(idxs[0])
+            j_idx.append(idxs[1])
+            k_idx.append(idxs[2])
+
+    return vx, vy, vz, i_idx, j_idx, k_idx, tag_to_vidx
+
+
+# ---------------------------------------------------------------------------
 # Plotly 3D figure builders
 # ---------------------------------------------------------------------------
 def _spatial_aspect_ratio(fig):
@@ -473,7 +838,8 @@ def _plotly_3d_force(
     :rtype: :class:`plotly.graph_objects.Figure`
     """
     go = _import_plotly()
-    if fig is None:
+    new_fig = fig is None
+    if new_fig:
         fig = go.Figure()
     label = comp_label or component
 
@@ -605,8 +971,8 @@ def _plotly_3d_force(
             )
             trace_idx += 1
 
-    # Support markers on the zero-baseline
-    if show_supports:
+    # Support markers on the zero-baseline (skip for _ModelProxy)
+    if show_supports and hasattr(ospgrillage_obj, "Mesh_obj"):
         supports = _extract_support_data(ospgrillage_obj)
         from collections import defaultdict
 
@@ -648,10 +1014,13 @@ def _plotly_3d_force(
         ),
         legend_title="Member",
     )
-    if title is _AUTO:
-        layout_kw["title"] = f"{label} Diagram"
-    elif title is not None:
-        layout_kw["title"] = title
+    if new_fig:
+        # Only set title when we created the figure (preserve SRF title
+        # when composing onto an existing contour figure).
+        if title is _AUTO:
+            layout_kw["title"] = f"{label} Diagram"
+        elif title is not None:
+            layout_kw["title"] = title
     if figsize is not None:
         layout_kw["width"] = figsize[0] * 100
         layout_kw["height"] = figsize[1] * 100
@@ -804,8 +1173,8 @@ def _plotly_3d_def(
             )
             trace_idx += 1
 
-    # Support markers on the zero-baseline
-    if show_supports:
+    # Support markers on the zero-baseline (skip for _ModelProxy)
+    if show_supports and hasattr(ospgrillage_obj, "Mesh_obj"):
         supports = _extract_support_data(ospgrillage_obj)
         from collections import defaultdict
 
@@ -857,9 +1226,236 @@ def _plotly_3d_def(
     return fig
 
 
+def _plotly_3d_shell_contour(
+    result_obj,
+    component,
+    loadcase=None,
+    *,
+    fig=None,
+    figsize=None,
+    title=_AUTO,
+    colorscale="RdBu_r",
+    show_colorbar=True,
+    opacity=1.0,
+    averaging="nodal",
+):
+    """Build a Plotly ``Mesh3d`` contour of a shell stress resultant.
+
+    The returned figure can be passed as ``fig=`` to
+    :func:`_plotly_3d_force` or the ``plot_bmd`` family to overlay beam
+    force diagrams on top of the shell contour.
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+        Results dataset containing ``forces_shell``, ``ele_nodes_shell``,
+        and ``node_coordinates``.
+    component : str
+        ``"Vx"``, ``"Vy"``, ``"Vz"``, ``"Mx"``, ``"My"``, or ``"Mz"``.
+    loadcase : str or None
+        Load case name.  ``None`` uses the first load case.
+    fig : plotly.graph_objects.Figure or None
+        Existing figure to add the contour to.
+    figsize : tuple or None
+        ``(width, height)`` in inches.
+    title : str, None, or _AUTO
+        Plot title.
+    colorscale : str
+        Any valid Plotly colorscale name.
+    show_colorbar : bool
+        Show colour bar legend.
+    opacity : float
+        Surface opacity (0–1).
+    averaging : str
+        Nodal averaging method (see :func:`_extract_shell_contour_data`).
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+    """
+    go = _import_plotly()
+    new_fig = fig is None
+    if new_fig:
+        fig = go.Figure()
+
+    # Extract data — dispatch to force or displacement extraction
+    if component in _DISP_COMPONENTS:
+        node_values, element_quads = _extract_shell_disp_data(
+            result_obj, component, loadcase,
+        )
+    elif component in _STRESS_RESULTANTS:
+        node_values, element_quads = _extract_shell_stress_data(
+            result_obj, component, loadcase,
+        )
+    else:
+        node_values, element_quads = _extract_shell_contour_data(
+            result_obj, component, loadcase, averaging=averaging,
+        )
+
+    # Build node coordinate dict from Dataset
+    coords_da = result_obj["node_coordinates"]
+    node_coords = {}
+    for tag in coords_da.coords["Node"].values:
+        node_coords[int(tag)] = coords_da.sel(Node=tag).values.tolist()
+
+    # Triangulate
+    vx, vy, vz, i_idx, j_idx, k_idx, tag_to_vidx = _triangulate_shell_mesh(
+        node_coords, element_quads,
+    )
+
+    # Build intensity array aligned with vertex order
+    intensity = [0.0] * len(vx)
+    for tag, vidx in tag_to_vidx.items():
+        intensity[vidx] = node_values.get(tag, 0.0)
+
+    fig.add_trace(
+        go.Mesh3d(
+            x=vx,
+            y=vy,
+            z=vz,
+            i=i_idx,
+            j=j_idx,
+            k=k_idx,
+            intensity=intensity,
+            colorscale=colorscale,
+            colorbar=dict(title=component, x=-0.05, xanchor="right") if show_colorbar else None,
+            showscale=show_colorbar,
+            opacity=opacity,
+            flatshading=True,
+            lighting=dict(
+                ambient=1.0, diffuse=0.0, specular=0.0, fresnel=0.0,
+            ),
+            name=f"shell_{component}",
+            hovertemplate=f"{component}: %{{intensity:.3g}}<extra></extra>",
+        )
+    )
+
+    # Layout — only apply when creating a new figure
+    if new_fig:
+        _no_bg = dict(showbackground=False)
+        layout_kw = dict(
+            scene=dict(
+                xaxis=dict(title="x (m)", **_no_bg),
+                yaxis=dict(title="z (m)", **_no_bg),
+                zaxis=dict(title="y (m)", **_no_bg),
+                aspectmode="data",
+            ),
+        )
+        if title is _AUTO:
+            layout_kw["title"] = f"Shell Contour — {component}"
+        elif title is not None:
+            layout_kw["title"] = title
+        if figsize is not None:
+            layout_kw["width"] = figsize[0] * 100
+            layout_kw["height"] = figsize[1] * 100
+        fig.update_layout(**layout_kw)
+
+    return fig
+
+
 # ---------------------------------------------------------------------------
 # Matplotlib plotting functions
 # ---------------------------------------------------------------------------
+def _plot_shell_contour_mpl(
+    result_obj,
+    component,
+    loadcase=None,
+    *,
+    ax=None,
+    figsize=None,
+    title=_AUTO,
+    cmap="RdBu_r",
+    show_colorbar=True,
+    averaging="nodal",
+):
+    """Plot a 2-D plan-view filled contour of a shell stress resultant.
+
+    Uses :class:`matplotlib.tri.Triangulation` and
+    :meth:`~matplotlib.axes.Axes.tripcolor` with Gouraud shading.
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+    component : str
+    loadcase : str or None
+    ax : matplotlib.axes.Axes or None
+    figsize : tuple or None
+    title : str, None, or _AUTO
+    cmap : str
+        Matplotlib colormap name.
+    show_colorbar : bool
+    averaging : str
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+    """
+    import matplotlib.tri as mtri
+
+    if component in _DISP_COMPONENTS:
+        node_values, element_quads = _extract_shell_disp_data(
+            result_obj, component, loadcase,
+        )
+    elif component in _STRESS_RESULTANTS:
+        node_values, element_quads = _extract_shell_stress_data(
+            result_obj, component, loadcase,
+        )
+    else:
+        node_values, element_quads = _extract_shell_contour_data(
+            result_obj, component, loadcase, averaging=averaging,
+        )
+
+    # Build node coordinate dict
+    coords_da = result_obj["node_coordinates"]
+    node_coords = {}
+    for tag in coords_da.coords["Node"].values:
+        node_coords[int(tag)] = coords_da.sel(Node=tag).values.tolist()
+
+    # Collect unique node tags in stable order and build index mapping
+    seen = {}
+    ordered_tags = []
+    for quad in element_quads:
+        for tag in quad:
+            if tag not in seen:
+                seen[tag] = len(ordered_tags)
+                ordered_tags.append(tag)
+
+    # 2D plan view: model x, model z
+    x_arr = np.array([node_coords[t][0] for t in ordered_tags])
+    z_arr = np.array([node_coords[t][2] for t in ordered_tags])
+    vals = np.array([node_values.get(t, 0.0) for t in ordered_tags])
+
+    # Build triangle list
+    triangles = []
+    for quad in element_quads:
+        idxs = [seen[t] for t in quad]
+        if len(idxs) == 4:
+            triangles.append([idxs[0], idxs[1], idxs[2]])
+            triangles.append([idxs[0], idxs[2], idxs[3]])
+        elif len(idxs) == 3:
+            triangles.append([idxs[0], idxs[1], idxs[2]])
+    triangles = np.array(triangles, dtype=int)
+
+    tri = mtri.Triangulation(x_arr, z_arr, triangles)
+
+    if ax is None:
+        _fig, ax = plt.subplots(figsize=figsize)
+
+    tc = ax.tripcolor(tri, vals, cmap=cmap, shading="gouraud")
+    if show_colorbar:
+        ax.get_figure().colorbar(tc, ax=ax, label=component)
+
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("z (m)")
+    ax.set_aspect("equal")
+    if title is _AUTO:
+        ax.set_title(f"Shell Contour — {component}")
+    elif title is not None:
+        ax.set_title(title)
+
+    return ax
+
+
 def plot_force(
     ospgrillage_obj,
     result_obj=None,
@@ -1530,6 +2126,155 @@ def plot_tmd(
         except (ValueError, KeyError, IndexError):
             pass
     return figs
+
+
+# ---------------------------------------------------------------------------
+# Shell contour convenience wrapper
+# ---------------------------------------------------------------------------
+def plot_srf(
+    result_obj,
+    component="Mx",
+    loadcase=None,
+    backend="plotly",
+    **kwargs,
+):
+    """Plot a contour field over the shell mesh.
+
+    Visualises shell element data as an interpolated contour over the
+    deck slab mesh of a ``shell_beam`` model.  Three families of
+    component are supported:
+
+    * **Shell forces** — ``Vx``, ``Vy``, ``Vz``, ``Mx``, ``My``,
+      ``Mz``.  Element end forces averaged at shared nodes.
+    * **Displacements** — ``Dx``, ``Dy``, ``Dz``.  Nodal translations
+      read directly from the ``displacements`` array.
+    * **Stress resultants** — ``N11``, ``N22``, ``N12``, ``M11``,
+      ``M22``, ``M12``, ``Q13``, ``Q23``.  Section stress resultants
+      averaged across the 4 Gauss points per element, then averaged
+      at shared nodes.
+
+    The returned Plotly figure can be composed with beam force
+    diagrams by passing it as ``ax=`` to :func:`plot_bmd` etc.::
+
+        fig = og.plot_srf(results, "Mx", backend="plotly", show=False)
+        og.plot_bmd(proxy, results, backend="plotly", ax=fig)
+
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+        Results dataset.  Must contain ``ele_nodes_shell`` and
+        ``node_coordinates``.  Depending on *component*, also requires
+        ``forces_shell`` (shell forces), ``displacements``
+        (displacement components), or ``stresses_shell`` (stress
+        resultants).
+    component : str, default ``"Mx"``
+        Component to plot.  One of:
+
+        * Shell forces: ``"Vx"``, ``"Vy"``, ``"Vz"``, ``"Mx"``,
+          ``"My"``, ``"Mz"``
+        * Displacements: ``"Dx"``, ``"Dy"``, ``"Dz"``
+        * Stress resultants: ``"N11"``, ``"N22"``, ``"N12"``,
+          ``"M11"``, ``"M22"``, ``"M12"``, ``"Q13"``, ``"Q23"``
+    loadcase : str or None, default ``None``
+        Load case name to plot.  ``None`` uses the first load case.
+    backend : str, default ``"plotly"``
+        ``"plotly"`` for interactive 3-D or ``"matplotlib"`` for 2-D.
+    colorscale : str, default ``"RdBu_r"``
+        Plotly colorscale name (or matplotlib *cmap* name).  Use a
+        diverging scale (e.g. ``"RdBu_r"``) for signed data and a
+        sequential scale (e.g. ``"Viridis"``) for displacements.
+    show : bool
+        Display the plot immediately.  Default ``True`` for plotly,
+        ``False`` for matplotlib.
+    **kwargs
+        Forwarded to the backend renderer.  Accepted keys include
+        *figsize*, *title*, *opacity*, *show_colorbar*, *averaging*,
+        and *ax* / *fig* for composing onto an existing figure.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure or matplotlib.axes.Axes
+        The figure object, or ``None`` when *show* is ``True`` (plotly
+        backend only).
+
+    Raises
+    ------
+    ValueError
+        If the dataset does not contain the required data variables
+        for the requested *component*.
+    """
+    if component not in _SRF_COMPONENTS:
+        raise ValueError(
+            f"Unknown component {component!r}. "
+            f"Expected one of {_SRF_COMPONENTS}."
+        )
+    if "ele_nodes_shell" not in result_obj:
+        raise ValueError(
+            "Dataset does not contain shell element results. "
+            "plot_srf() requires a shell_beam model."
+        )
+    if component in _DISP_COMPONENTS and "displacements" not in result_obj:
+        raise ValueError("Dataset does not contain 'displacements'.")
+    if component in _SHELL_COMPONENTS and "forces_shell" not in result_obj:
+        raise ValueError("Dataset does not contain 'forces_shell'.")
+    if component in _STRESS_RESULTANTS and "stresses_shell" not in result_obj:
+        raise ValueError(
+            "Dataset does not contain 'stresses_shell'. "
+            "Re-run analysis with the latest ospgrillage to include "
+            "shell section stress resultants."
+        )
+    if "node_coordinates" not in result_obj:
+        raise ValueError(
+            "Dataset does not contain 'node_coordinates'. "
+            "Re-generate results with the latest ospgrillage."
+        )
+
+    if backend == "plotly":
+        show = kwargs.pop("show", True)
+        plotly_kw = {
+            k: v
+            for k, v in kwargs.items()
+            if k
+            in (
+                "figsize",
+                "title",
+                "colorscale",
+                "show_colorbar",
+                "opacity",
+                "averaging",
+            )
+        }
+        # Accept 'ax' as alias for 'fig' (matches plot_bmd pattern)
+        plotly_kw["fig"] = kwargs.get("ax", kwargs.get("fig", None))
+        fig = _plotly_3d_shell_contour(
+            result_obj,
+            component,
+            loadcase,
+            **plotly_kw,
+        )
+        if show:
+            _show_plotly_fig(fig)
+            return None
+        return fig
+
+    # matplotlib path
+    mpl_kw = {
+        k: v
+        for k, v in kwargs.items()
+        if k in ("ax", "figsize", "title", "show_colorbar", "averaging")
+    }
+    # Map 'colorscale' -> 'cmap' for matplotlib
+    mpl_kw["cmap"] = kwargs.get("colorscale", kwargs.get("cmap", "RdBu_r"))
+    show = kwargs.get("show", False)
+    ax = _plot_shell_contour_mpl(
+        result_obj,
+        component,
+        loadcase,
+        **mpl_kw,
+    )
+    if show:
+        plt.show()
+    return ax
 
 
 # ---------------------------------------------------------------------------
