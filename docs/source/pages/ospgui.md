@@ -42,6 +42,51 @@ The window is divided into three panels:
 - **Right** — an interactive 3-D mesh preview rendered via Plotly
   (rotate, zoom, and pan the model).
 
+## Results viewer
+
+The GUI can open saved results files (`.nc`) for interactive
+post-processing — no Python scripting required.
+
+### Opening results
+
+Use **File > Open Results (.nc)** (or Ctrl+O) to load a self-contained
+NetCDF file produced by
+{meth}`~ospgrillage.osp_grillage.OspGrillage.get_results`:
+
+```python
+results = bridge.get_results(save_filename="bridge_results.nc")
+```
+
+The interface switches to a results view with five interactive tabs:
+
+| Tab | Contents |
+|---|---|
+| **Deflection** | Vertical deflected shape |
+| **BMD** | Bending moment diagram |
+| **SFD** | Shear force diagram |
+| **TMD** | Torsion moment diagram |
+| **Shell Contour** | Shell element contour plot (shell_beam models only) |
+
+A left-hand panel provides **loadcase** and **member filter** controls
+that apply to all tabs.
+
+### Shell Contour tab
+
+For `shell_beam` models, the Shell Contour tab renders a
+{func}`~ospgrillage.postprocessing.plot_srf` contour over the deck
+slab.  Three additional controls appear in the left panel:
+
+- **Component** — any of the 17 available components: shell forces
+  (`Mx`–`Mz`), displacements (`Dx`–`Dz`), or stress resultants
+  (`N11`–`Q23`).
+- **Colorscale** — `RdBu_r`, `Viridis`, `Plasma`, `Cividis`, or
+  `Turbo`.
+- **Overlay** — optionally composite a beam diagram (`BMD`, `SFD`,
+  `TMD`, or `Deflection`) on top of the contour.
+
+The contour controls are greyed out when viewing a non-contour tab and
+hidden entirely for non-shell models.
+
 ## API reference
 
 ### `main()`
