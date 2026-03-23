@@ -2138,39 +2138,70 @@ def plot_srf(
     backend="plotly",
     **kwargs,
 ):
-    """Plot a stress resultant field over the shell mesh.
+    """Plot a contour field over the shell mesh.
 
-    Visualises one of the six stress resultant components (Vx, Vy, Vz,
-    Mx, My, Mz) over the shell element mesh.  For ``shell_beam`` models
-    this shows the deck slab response.
+    Visualises shell element data as an interpolated contour over the
+    deck slab mesh of a ``shell_beam`` model.  Three families of
+    component are supported:
 
-    The contour can be composed with beam force diagrams::
+    * **Shell forces** — ``Vx``, ``Vy``, ``Vz``, ``Mx``, ``My``,
+      ``Mz``.  Element end forces averaged at shared nodes.
+    * **Displacements** — ``Dx``, ``Dy``, ``Dz``.  Nodal translations
+      read directly from the ``displacements`` array.
+    * **Stress resultants** — ``N11``, ``N22``, ``N12``, ``M11``,
+      ``M22``, ``M12``, ``Q13``, ``Q23``.  Section stress resultants
+      averaged across the 4 Gauss points per element, then averaged
+      at shared nodes.
+
+    The returned Plotly figure can be composed with beam force
+    diagrams by passing it as ``ax=`` to :func:`plot_bmd` etc.::
 
         fig = og.plot_srf(results, "Mx", backend="plotly", show=False)
         og.plot_bmd(proxy, results, backend="plotly", ax=fig)
 
-    :param result_obj: xarray Dataset of results (must contain
-        ``forces_shell``, ``ele_nodes_shell``, and ``node_coordinates``).
-    :type result_obj: xarray.Dataset
-    :param component: Stress resultant component.  One of ``"Vx"``,
-        ``"Vy"``, ``"Vz"``, ``"Mx"``, ``"My"``, or ``"Mz"``.
-    :type component: str
-    :param loadcase: Load case name.  ``None`` uses the first.
-    :type loadcase: str or None
-    :param backend: ``"plotly"`` (3-D, default) or ``"matplotlib"`` (2-D).
-    :type backend: str
-    :param colorscale: Plotly colorscale name (plotly) or matplotlib cmap
-        name (matplotlib).  Default ``"RdBu_r"``.
-    :type colorscale: str
-    :param show: Display the plot immediately.  Default ``True`` (plotly)
-        or ``False`` (matplotlib).
-    :type show: bool
-    :param \\**kwargs: Forwarded to the backend renderer.  Accepted keys
-        include *figsize*, *title*, *opacity*, *show_colorbar*, *averaging*,
-        and *ax*/*fig* for composing onto an existing figure.
-    :returns: Plotly ``Figure`` (``None`` when ``show=True``) or
-        matplotlib ``Axes``.
-    :raises ValueError: If the dataset has no shell element data.
+    Parameters
+    ----------
+    result_obj : xarray.Dataset
+        Results dataset.  Must contain ``ele_nodes_shell`` and
+        ``node_coordinates``.  Depending on *component*, also requires
+        ``forces_shell`` (shell forces), ``displacements``
+        (displacement components), or ``stresses_shell`` (stress
+        resultants).
+    component : str, default ``"Mx"``
+        Component to plot.  One of:
+
+        * Shell forces: ``"Vx"``, ``"Vy"``, ``"Vz"``, ``"Mx"``,
+          ``"My"``, ``"Mz"``
+        * Displacements: ``"Dx"``, ``"Dy"``, ``"Dz"``
+        * Stress resultants: ``"N11"``, ``"N22"``, ``"N12"``,
+          ``"M11"``, ``"M22"``, ``"M12"``, ``"Q13"``, ``"Q23"``
+    loadcase : str or None, default ``None``
+        Load case name to plot.  ``None`` uses the first load case.
+    backend : str, default ``"plotly"``
+        ``"plotly"`` for interactive 3-D or ``"matplotlib"`` for 2-D.
+    colorscale : str, default ``"RdBu_r"``
+        Plotly colorscale name (or matplotlib *cmap* name).  Use a
+        diverging scale (e.g. ``"RdBu_r"``) for signed data and a
+        sequential scale (e.g. ``"Viridis"``) for displacements.
+    show : bool
+        Display the plot immediately.  Default ``True`` for plotly,
+        ``False`` for matplotlib.
+    **kwargs
+        Forwarded to the backend renderer.  Accepted keys include
+        *figsize*, *title*, *opacity*, *show_colorbar*, *averaging*,
+        and *ax* / *fig* for composing onto an existing figure.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure or matplotlib.axes.Axes
+        The figure object, or ``None`` when *show* is ``True`` (plotly
+        backend only).
+
+    Raises
+    ------
+    ValueError
+        If the dataset does not contain the required data variables
+        for the requested *component*.
     """
     if component not in _SRF_COMPONENTS:
         raise ValueError(
