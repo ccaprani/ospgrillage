@@ -1,6 +1,12 @@
 Post-processing
 ===============
 
+Influence-line and influence-surface post-processing preserves the
+`shape_function` metadata from the stored influence study. When a study was run
+with `shape_function="hermite"`, that corresponds to the higher-order load
+distribution path: Hermite on quadrilateral regions and the DKT-style condensed
+distributor on three-node triangular regions.
+
 Factory functions
 -----------------
 
@@ -8,6 +14,8 @@ Factory functions
    :toctree: generated/
 
    ~ospgrillage.postprocessing.create_envelope
+   ~ospgrillage.postprocessing.create_influence_line
+   ~ospgrillage.postprocessing.create_influence_surface
    ~ospgrillage.postprocessing.plot_force
    ~ospgrillage.postprocessing.plot_bmd
    ~ospgrillage.postprocessing.plot_sfd
@@ -24,6 +32,18 @@ Envelope
 ~~~~~~~~
 
 .. autoclass:: ospgrillage.postprocessing.Envelope
+   :show-inheritance:
+
+InfluenceLine
+~~~~~~~~~~~~~
+
+.. autoclass:: ospgrillage.postprocessing.InfluenceLine
+   :show-inheritance:
+
+InfluenceSurface
+~~~~~~~~~~~~~~~~
+
+.. autoclass:: ospgrillage.postprocessing.InfluenceSurface
    :show-inheritance:
 
 PostProcessor

@@ -25,6 +25,8 @@ from ospgrillage.load import (
     LoadVertex,
     MovingLoad,
     NodalLoad,
+    # ospgrillage moving-load path definition, not pathlib.Path
+    Path,
     PatchLoading,
     PointLoad,
     ShapeFunction,
@@ -43,6 +45,8 @@ from ospgrillage.postprocessing import (
     Envelope,
     PostProcessor,
     create_envelope,
+    create_influence_line,
+    create_influence_surface,
     plot_force,
 )
 from ospgrillage.utils import (
@@ -73,6 +77,7 @@ __all__ = [
     "create_grillage",
     "Analysis",
     "GrillageElement",
+    "InfluenceResultSet",
     "Results",
 ]
 
@@ -224,6 +229,36 @@ class GrillageElement:
     nodes: List
     tag: int
     a: list
+
+
+@dataclass
+class InfluenceResultSet:
+    """Separate result container for influence-line or influence-surface analyses."""
+
+    name: str
+    kind: str
+    results: "Results"
+    load_positions: list
+    shape_function: str = "linear"
+
+    def compile_data_array(self, local_force_option=True, main_ele_tags=None):
+        ds = self.results.compile_data_array(
+            local_force_option=local_force_option,
+            main_ele_tags=main_ele_tags,
+        )
+        if self.load_positions:
+            xs = [float(pos[0]) for pos in self.load_positions]
+            ys = [float(pos[1]) for pos in self.load_positions]
+            zs = [float(pos[2]) for pos in self.load_positions]
+            ds = ds.assign_coords(
+                load_position_x=("Loadcase", xs),
+                load_position_y=("Loadcase", ys),
+                load_position_z=("Loadcase", zs),
+            )
+        ds.attrs["influence_name"] = self.name
+        ds.attrs["influence_type"] = self.kind
+        ds.attrs["shape_function"] = self.shape_function
+        return ds
 
 
 class OspGrillage:
@@ -420,6 +455,7 @@ class OspGrillage:
         # Mesh objects, pyfile flag, and verbose flag
         self.pyfile = None
         self.results = None
+        self.influence_result_set = dict()
         self.diagnostics = kwargs.get(
             "diagnostics", False
         )  # flag for diagnostics printed to terminal
@@ -2340,6 +2376,381 @@ class OspGrillage:
         ds.attrs["model_type"] = self.model_type
 
         return ds
+
+    def _run_analysis_case_dicts(
+        self,
+        load_case_dict_list: list,
+        results_obj: "Results",
+        analysis_type: str = "Static",
+        step: int = 1,
+        time_increment: float = 0.01,
+    ) -> None:
+        """Evaluate a list of prepared load-case dictionaries into a target Results object."""
+        for load_case_dict in load_case_dict_list:
+            load_case_obj = load_case_dict["loadcase"]
+            load_command = load_case_dict["load_command"]
+            load_factor = load_case_dict["load_factor"]
+            load_case_analysis = Analysis(
+                analysis_name=load_case_obj.name,
+                analysis_type=analysis_type,
+                step=step,
+                ops_grillage_name=self.model_name,
+                pyfile=self.pyfile,
+                time_series_counter=self.global_time_series_counter,
+                pattern_counter=self.global_pattern_counter,
+                node_counter=self.Mesh_obj.node_counter,
+                ele_counter=self.Mesh_obj.element_counter,
+                constraint_type=self.constraint_type,
+                load_case=load_case_obj,
+                time_increment=time_increment,
+            )
+            load_case_analysis.add_load_command(load_command, load_factor=load_factor)
+            (
+                self.global_time_series_counter,
+                self.global_pattern_counter,
+                node_disp,
+                ele_force,
+                self.analysis_command,
+            ) = load_case_analysis.evaluate_analysis()
+            results_obj.extract_analysis(analysis_obj=load_case_analysis)
+
+    def analyze_influence_line(self, **kwargs) -> InfluenceResultSet:
+        """
+        Create and run a dedicated 100 kN axle influence-line analysis.
+
+        This analysis is stored separately from ordinary load-case results and
+        is retrieved via :func:`get_influence_results`.
+
+        :param name: Influence analysis name.
+        :type name: str
+        :param path: Optional explicit Path object describing the axle centre-line movement.
+        :type path: Path, optional
+        :param start_point: Start point of the axle path.
+        :type start_point: Point
+        :param end_point: End point of the axle path.
+        :type end_point: Point
+        :param increments: Number of axle positions along the path. Defaults to ``50``.
+        :type increments: int, optional
+        :param step: Target spacing between axle positions along the path.
+            If provided, overrides ``increments``.
+        :type step: float, optional
+        :param axle_load: Axle load magnitude. Defaults to ``100e3``.
+        :type axle_load: float, optional
+        """
+        name = kwargs.get("name", "Influence Line")
+        path = kwargs.get("path", None)
+        start_point = kwargs.get("start_point", None)
+        end_point = kwargs.get("end_point", None)
+        increments = kwargs.get("increments", 50)
+        step_size = kwargs.get("step", None)
+        axle_load = kwargs.get("axle_load", 100e3)
+        shape_function = kwargs.get("shape_function", "linear")
+        analysis_type = kwargs.get("analysis_type", "Static")
+        analysis_step = kwargs.get("analysis_step", 1)
+        time_increment = kwargs.get("time_increment", 0.01)
+        store_results = kwargs.get("store_results", True)
+
+        if path is None and (start_point is None or end_point is None):
+            raise ValueError("Either path= or both start_point= and end_point= are required for influence-line analysis")
+
+        if path is None:
+            if step_size is not None:
+                total_length = get_distance(start_point, end_point)
+                increments = max(int(np.floor(total_length / step_size)) + 1, 2)
+            path = Path(start_point=start_point, end_point=end_point, increments=increments)
+        axle = PointLoad(
+            name=f"{name} axle",
+            point1=LoadVertex(0, 0, 0, axle_load),
+            shape_function=shape_function,
+        )
+        moving_load = MovingLoad(name=name)
+        moving_load.set_path(path)
+        moving_load.add_load(axle)
+        moving_load.parse_moving_load_cases()
+
+        load_case_dict_list = []
+        for moving_load_case_list in moving_load.moving_load_case:
+            for increment_load_case in moving_load_case_list:
+                load_str = self._distribute_load_types_to_model(
+                    load_case_obj=increment_load_case
+                )
+                load_case_dict_list.append(
+                    {
+                        "name": increment_load_case.name,
+                        "loadcase": increment_load_case,
+                        "load_command": load_str,
+                        "load_factor": 1,
+                    }
+                )
+
+        influence_results = Results(self.Mesh_obj)
+        self._run_analysis_case_dicts(
+            load_case_dict_list=load_case_dict_list,
+            results_obj=influence_results,
+            analysis_type=analysis_type,
+            step=analysis_step,
+            time_increment=time_increment,
+        )
+        result_set = InfluenceResultSet(
+            name=name,
+            kind="line",
+            results=influence_results,
+            load_positions=path.get_path_points(),
+            shape_function=shape_function,
+        )
+        if store_results:
+            self.influence_result_set[name] = result_set
+            return result_set
+
+        return self.get_il(
+            result_set=result_set,
+            array=kwargs.get("array", None),
+            component=kwargs.get("component", None),
+            node=kwargs.get("node", None),
+            element=kwargs.get("element", None),
+            load_coord=kwargs.get("load_coord", "x"),
+        )
+
+    def analyze_influence_surface(self, **kwargs) -> InfluenceResultSet:
+        """
+        Create and run a dedicated 100 kN roving-point influence-surface analysis.
+
+        This analysis is stored separately from ordinary load-case results and
+        is retrieved via :func:`get_influence_results`.
+
+        :param name: Influence analysis name.
+        :type name: str
+        :param x: Iterable of x coordinates for the roving point.
+        :type x: iterable
+        :param z: Iterable of z coordinates for the roving point.
+        :type z: iterable
+        :param x_step: Default spacing used to generate x coordinates from the deck extent.
+        :type x_step: float, optional
+        :param z_step: Default spacing used to generate z coordinates from the deck extent.
+        :type z_step: float, optional
+        :param y: Model-plane y coordinate. Defaults to ``0``.
+        :type y: float, optional
+        :param point_load: Point-load magnitude. Defaults to ``100e3``.
+        :type point_load: float, optional
+        """
+        name = kwargs.get("name", "Influence Surface")
+        x_points = kwargs.get("x", None)
+        z_points = kwargs.get("z", None)
+        x_step = kwargs.get("x_step", 1.0)
+        z_step = kwargs.get("z_step", 1.0)
+        y = kwargs.get("y", 0)
+        point_load = kwargs.get("point_load", 100e3)
+        shape_function = kwargs.get("shape_function", "linear")
+        analysis_type = kwargs.get("analysis_type", "Static")
+        analysis_step = kwargs.get("analysis_step", 1)
+        time_increment = kwargs.get("time_increment", 0.01)
+        store_results = kwargs.get("store_results", True)
+
+        if x_points is None or z_points is None:
+            all_nodes = self.get_nodes()
+            x_coords = [node_data["coordinate"][0] for node_data in all_nodes.values()]
+            z_coords = [node_data["coordinate"][2] for node_data in all_nodes.values()]
+            if x_points is None:
+                x_points = np.arange(min(x_coords), max(x_coords) + x_step * 0.5, x_step)
+            if z_points is None:
+                z_points = np.arange(min(z_coords), max(z_coords) + z_step * 0.5, z_step)
+
+        load_positions = [(float(x), float(y), float(z)) for x in x_points for z in z_points]
+        load_case_dict_list = []
+        for x, y_val, z in load_positions:
+            point_load_case = LoadCase(
+                name=f"{name} at global position [{x:.2f},{y_val:.2f},{z:.2f}]"
+            )
+            point = PointLoad(
+                name=f"{name} point",
+                point1=LoadVertex(x, y_val, z, point_load),
+                shape_function=shape_function,
+            )
+            point_load_case.add_load(point)
+            load_str = self._distribute_load_types_to_model(load_case_obj=point_load_case)
+            load_case_dict_list.append(
+                {
+                    "name": point_load_case.name,
+                    "loadcase": point_load_case,
+                    "load_command": load_str,
+                    "load_factor": 1,
+                }
+            )
+
+        influence_results = Results(self.Mesh_obj)
+        self._run_analysis_case_dicts(
+            load_case_dict_list=load_case_dict_list,
+            results_obj=influence_results,
+            analysis_type=analysis_type,
+            step=analysis_step,
+            time_increment=time_increment,
+        )
+        result_set = InfluenceResultSet(
+            name=name,
+            kind="surface",
+            results=influence_results,
+            load_positions=load_positions,
+            shape_function=shape_function,
+        )
+        if store_results:
+            self.influence_result_set[name] = result_set
+            return result_set
+
+        return self.get_is(
+            result_set=result_set,
+            array=kwargs.get("array", None),
+            component=kwargs.get("component", None),
+            node=kwargs.get("node", None),
+            element=kwargs.get("element", None),
+            x_coord=kwargs.get("x_coord", "x"),
+            y_coord=kwargs.get("y_coord", "z"),
+        )
+
+    def get_influence_results(self, name: str, **kwargs):
+        """
+        Return a stored influence-line or influence-surface result Dataset.
+
+        :param name: Influence analysis name.
+        :type name: str
+        :param save_filename: Optional NetCDF output path.
+        :type save_filename: str, optional
+        :param local_forces: If ``True``, use local element forces. Defaults to ``False``.
+        :type local_forces: bool, optional
+        """
+        if name not in self.influence_result_set:
+            raise ValueError(f"No influence analysis named {name!r} has been run")
+
+        local_force_flag = kwargs.get("local_forces", False)
+        save_filename = kwargs.get("save_filename", None)
+        ds = self.influence_result_set[name].compile_data_array(
+            local_force_option=local_force_flag,
+            main_ele_tags=self.Mesh_obj.element_counter,
+        )
+        if save_filename:
+            ds.to_netcdf(save_filename)
+        return ds
+
+    def clear_influence_results(self, name: str = None) -> None:
+        """Clear one named influence analysis or all stored influence analyses."""
+        if name is None:
+            self.influence_result_set = dict()
+        else:
+            self.influence_result_set.pop(name, None)
+
+    def analyze_il(self, **kwargs):
+        """Short alias for :func:`analyze_influence_line`."""
+        return self.analyze_influence_line(**kwargs)
+
+    def analyze_is(self, **kwargs):
+        """Short alias for :func:`analyze_influence_surface`."""
+        return self.analyze_influence_surface(**kwargs)
+
+    def get_il(self, name: str = None, result_set: InfluenceResultSet = None, **kwargs):
+        """Extract a reduced influence line using xarray-style ``array`` and ``component`` selectors."""
+        if result_set is None:
+            if name is None:
+                raise ValueError("name= or result_set= is required")
+            ds = self.get_influence_results(name, local_forces=kwargs.get("local_forces", False))
+        else:
+            ds = result_set.compile_data_array(
+                local_force_option=kwargs.get("local_forces", False),
+                main_ele_tags=self.Mesh_obj.element_counter,
+            )
+
+        component = kwargs.get("component", None)
+        array = kwargs.get("array", None)
+        if component is None or array is None:
+            raise ValueError("array= and component= are required to extract an influence line")
+        return create_influence_line(
+            ds=ds,
+            array=array,
+            component=component,
+            node=kwargs.get("node", None),
+            element=kwargs.get("element", None),
+            load_coord=kwargs.get("load_coord", "x"),
+        ).get()
+
+    def get_is(self, name: str = None, result_set: InfluenceResultSet = None, **kwargs):
+        """Extract a reduced influence surface using xarray-style ``array`` and ``component`` selectors."""
+        if result_set is None:
+            if name is None:
+                raise ValueError("name= or result_set= is required")
+            ds = self.get_influence_results(name, local_forces=kwargs.get("local_forces", False))
+        else:
+            ds = result_set.compile_data_array(
+                local_force_option=kwargs.get("local_forces", False),
+                main_ele_tags=self.Mesh_obj.element_counter,
+            )
+
+        component = kwargs.get("component", None)
+        array = kwargs.get("array", None)
+        if component is None or array is None:
+            raise ValueError("array= and component= are required to extract an influence surface")
+        return create_influence_surface(
+            ds=ds,
+            array=array,
+            component=component,
+            node=kwargs.get("node", None),
+            element=kwargs.get("element", None),
+            x_coord=kwargs.get("x_coord", "x"),
+            y_coord=kwargs.get("y_coord", "z"),
+        ).get()
+
+    def plot_il(self, il, **kwargs):
+        """Plot a reduced influence line."""
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.plot(il.coords[il.dims[0]].values, il.values, **kwargs)
+        ax.set_xlabel(il.dims[0])
+        ax.set_ylabel("ordinate")
+        return fig, ax
+
+    def plot_is(self, isurface, **kwargs):
+        """Plot a reduced influence surface as a filled contour."""
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        x_name, y_name = isurface.dims[0], isurface.dims[1]
+        contour = ax.contourf(
+            isurface.coords[x_name].values,
+            isurface.coords[y_name].values,
+            isurface.values.T,
+            **kwargs,
+        )
+        ax.set_xlabel(x_name)
+        ax.set_ylabel(y_name)
+        fig.colorbar(contour, ax=ax, label="ordinate")
+        return fig, ax
+
+    def export_il(self, il, filename: str) -> None:
+        """Export a reduced influence line to CSV."""
+        axis_name = il.dims[0]
+        data = np.column_stack(
+            [
+                il.coords["x"].values,
+                il.coords["y"].values,
+                il.coords["z"].values,
+                il.values,
+            ]
+        )
+        header = "x,y,z,ordinate"
+        np.savetxt(filename, data, delimiter=",", header=header, comments="")
+
+    def export_is(self, isurface, filename: str) -> None:
+        """Export a reduced influence surface to CSV in long-form."""
+        x_name, y_name = isurface.dims[0], isurface.dims[1]
+        rows = []
+        for x in isurface.coords[x_name].values:
+            for y in isurface.coords[y_name].values:
+                rows.append([x, y, isurface.sel({x_name: x, y_name: y}).item()])
+        np.savetxt(
+            filename,
+            np.asarray(rows, dtype=float),
+            delimiter=",",
+            header=f"{x_name},{y_name},ordinate",
+            comments="",
+        )
 
     def get_results(self, **kwargs):
         """

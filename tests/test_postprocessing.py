@@ -1,7 +1,223 @@
 from ospgrillage import __version__ as version
 from fixtures import *
+import xarray as xr
 
 sys.path.insert(0, os.path.abspath("../"))
+
+
+def test_influence_line_from_loadcase_positions():
+    ds = xr.Dataset(
+        data_vars={
+            "displacements": (
+                ["Loadcase", "Node", "Component"],
+                np.array(
+                    [
+                        [[1.0, 10.0], [2.0, 20.0]],
+                        [[3.0, 30.0], [4.0, 40.0]],
+                        [[5.0, 50.0], [6.0, 60.0]],
+                    ]
+                ),
+            )
+        },
+        coords={
+            "Loadcase": [
+                "100 kN axle at global position [0.00,0.00,2.00]",
+                "100 kN axle at global position [1.00,0.00,2.00]",
+                "100 kN axle at global position [2.00,0.00,2.00]",
+            ],
+            "Node": [1, 2],
+            "Component": ["x", "y"],
+        },
+    )
+
+    influence_line = og.create_influence_line(
+        ds=ds,
+        array="displacements",
+        load_effect="y",
+        node=2,
+    ).get()
+
+    assert influence_line.dims == ("x",)
+    assert np.allclose(influence_line.coords["x"].values, [0.0, 1.0, 2.0])
+    assert np.allclose(influence_line.coords["z"].values, [2.0, 2.0, 2.0])
+    assert np.allclose(influence_line.values, [20.0, 40.0, 60.0])
+
+
+def test_influence_surface_from_explicit_positions():
+    ds = xr.Dataset(
+        data_vars={
+            "forces": (
+                ["Loadcase", "Element", "Component"],
+                np.array(
+                    [
+                        [[10.0]],
+                        [[11.0]],
+                        [[12.0]],
+                        [[13.0]],
+                    ]
+                ),
+            )
+        },
+        coords={
+            "Loadcase": ["case_a", "case_b", "case_c", "case_d"],
+            "Element": [42],
+            "Component": ["Mz_i"],
+        },
+    )
+
+    influence_surface = og.create_influence_surface(
+        ds=ds,
+        array="forces",
+        load_effect="Mz_i",
+        element=42,
+        values=[
+            (0.0, 0.0, 2.0),
+            (1.0, 0.0, 2.0),
+            (0.0, 0.0, 3.0),
+            (1.0, 0.0, 3.0),
+        ],
+    ).get()
+
+    assert influence_surface.dims == ("x", "z")
+    assert np.allclose(influence_surface.coords["x"].values, [0.0, 1.0])
+    assert np.allclose(influence_surface.coords["z"].values, [2.0, 3.0])
+    assert influence_surface.sel(x=0.0, z=2.0).item() == 10.0
+    assert influence_surface.sel(x=1.0, z=2.0).item() == 11.0
+    assert influence_surface.sel(x=0.0, z=3.0).item() == 12.0
+    assert influence_surface.sel(x=1.0, z=3.0).item() == 13.0
+
+
+def test_analyze_influence_line_separate_results(bridge_model_42_negative):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    result_set = example_bridge.analyze_influence_line(
+        name="Lane IL",
+        start_point=og.Point(2, 0, 2),
+        end_point=og.Point(4, 0, 2),
+        increments=3,
+    )
+    influence_results = example_bridge.get_influence_results("Lane IL")
+
+    assert result_set.kind == "line"
+    assert influence_results.attrs["influence_type"] == "line"
+    assert influence_results.attrs["shape_function"] == "linear"
+    assert "Lane IL" in example_bridge.influence_result_set
+    assert influence_results.sizes["Loadcase"] == 3
+    assert np.allclose(influence_results.coords["load_position_x"].values, [2.0, 3.0, 4.0])
+
+
+def test_analyze_influence_line_preserves_hermite_shape_function(bridge_model_42_negative):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    example_bridge.analyze_influence_line(
+        name="Lane IL Hermite",
+        start_point=og.Point(2, 0, 2),
+        end_point=og.Point(4, 0, 2),
+        increments=3,
+        shape_function="hermite",
+    )
+    influence_results = example_bridge.get_influence_results("Lane IL Hermite")
+
+    assert influence_results.attrs["shape_function"] == "hermite"
+
+
+def test_analyze_influence_surface_separate_results(bridge_model_42_negative):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    result_set = example_bridge.analyze_influence_surface(
+        name="Deck IS",
+        x=[2, 4],
+        z=[2, 3],
+    )
+    influence_results = example_bridge.get_influence_results("Deck IS")
+
+    assert result_set.kind == "surface"
+    assert influence_results.attrs["influence_type"] == "surface"
+    assert influence_results.attrs["shape_function"] == "linear"
+    assert "Deck IS" in example_bridge.influence_result_set
+    assert influence_results.sizes["Loadcase"] == 4
+    assert np.allclose(influence_results.coords["load_position_x"].values, [2.0, 2.0, 4.0, 4.0])
+    assert np.allclose(influence_results.coords["load_position_z"].values, [2.0, 3.0, 2.0, 3.0])
+
+
+def test_influence_line_midspan_moment_matches_l_over_4(ref_bridge_properties):
+    og.ops.wipeAnalysis()
+    I_beam, slab, exterior_I_beam, concrete = ref_bridge_properties
+
+    L = 10.0
+    bridge = og.create_grillage(
+        bridge_name="IL_simple_beam",
+        long_dim=L,
+        width=2.0,
+        skew=0,
+        num_long_grid=3,
+        num_trans_grid=3,
+        edge_beam_dist=1.0,
+        mesh_type="Ortho",
+    )
+    bridge.set_member(I_beam, member="interior_main_beam")
+    bridge.set_member(exterior_I_beam, member="exterior_main_beam_1")
+    bridge.set_member(exterior_I_beam, member="exterior_main_beam_2")
+    bridge.set_member(exterior_I_beam, member="edge_beam")
+    bridge.set_member(slab, member="transverse_slab")
+    bridge.set_member(exterior_I_beam, member="start_edge")
+    bridge.set_member(exterior_I_beam, member="end_edge")
+    bridge.create_osp_model(pyfile=False)
+
+    interior_elements = bridge.get_element(member="interior_main_beam", options="elements")
+    assert len(interior_elements) == 2
+
+    bridge.analyze_il(
+        name="unit_axle_il",
+        start_point=og.Point(0, 0, 1.0),
+        end_point=og.Point(L, 0, 1.0),
+        step=0.5,
+        axle_load=1.0,
+    )
+    il = bridge.get_il(
+        name="unit_axle_il",
+        array="forces",
+        component="Mz_j",
+        element=interior_elements[0],
+        load_coord="x",
+    )
+
+    midspan_ordinate = float(il.sel(x=L / 2, method="nearest"))
+    assert np.isclose(midspan_ordinate, -L / 4, atol=0.15)
+
+
+def test_hermite_triangle_region_uses_dkt_style_distribution(bridge_model_42_negative):
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+
+    tri_grid_nodes = None
+    for nodes in bridge.Mesh_obj.grid_number_dict.values():
+        if len(nodes) == 3:
+            tri_grid_nodes = nodes
+            break
+
+    assert tri_grid_nodes is not None
+    coords = [bridge.Mesh_obj.node_spec[node]["coordinate"] for node in tri_grid_nodes]
+    point = [
+        sum(coord[0] for coord in coords) / 3,
+        0,
+        sum(coord[2] for coord in coords) / 3,
+    ]
+
+    load_cmd = bridge._assign_load_to_four_node(point=point, mag=1.0, shape_func="hermite")
+
+    assert len(load_cmd) == 3
+    vertical_sum = sum(command[1][2] for command in load_cmd)
+    mx_sum = sum(command[1][4] for command in load_cmd)
+    mz_sum = sum(command[1][6] for command in load_cmd)
+    assert any(abs(command[1][4]) > 0 for command in load_cmd)
+    assert any(abs(command[1][6]) > 0 for command in load_cmd)
+    assert np.isclose(vertical_sum, 1.0)
+    assert np.isclose(mx_sum, 0.0)
+    assert np.isclose(mz_sum, 0.0)
 
 
 def test_envelope(bridge_model_42_negative):

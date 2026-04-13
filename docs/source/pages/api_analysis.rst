@@ -3,6 +3,11 @@ Analysis and results
 
 Running the analysis and extracting results.
 
+For influence analyses, `shape_function="hermite"` denotes the higher-order
+load-distribution path used by *ospgrillage*: the existing Hermite
+quadrilateral distributor is used in four-node regions, while three-node skew
+regions use the DKT-style condensed triangular distributor.
+
 OspGrillage methods
 -------------------
 
@@ -10,7 +15,18 @@ OspGrillage methods
    :toctree: generated/
 
    ~ospgrillage.osp_grillage.OspGrillage.analyze
+   ~ospgrillage.osp_grillage.OspGrillage.analyze_il
+   ~ospgrillage.osp_grillage.OspGrillage.analyze_is
+   ~ospgrillage.osp_grillage.OspGrillage.analyze_influence_line
+   ~ospgrillage.osp_grillage.OspGrillage.analyze_influence_surface
+   ~ospgrillage.osp_grillage.OspGrillage.get_il
+   ~ospgrillage.osp_grillage.OspGrillage.get_is
    ~ospgrillage.osp_grillage.OspGrillage.get_results
+   ~ospgrillage.osp_grillage.OspGrillage.get_influence_results
+   ~ospgrillage.osp_grillage.OspGrillage.plot_il
+   ~ospgrillage.osp_grillage.OspGrillage.plot_is
+   ~ospgrillage.osp_grillage.OspGrillage.export_il
+   ~ospgrillage.osp_grillage.OspGrillage.export_is
 
 Class reference
 ---------------
@@ -25,4 +41,10 @@ Results
 ~~~~~~~
 
 .. autoclass:: ospgrillage.osp_grillage.Results
+   :show-inheritance:
+
+InfluenceResultSet
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: ospgrillage.osp_grillage.InfluenceResultSet
    :show-inheritance:

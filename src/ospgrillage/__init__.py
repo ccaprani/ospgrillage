@@ -22,6 +22,7 @@ __all__ = [
     "OspGrillageBeam",
     "OspGrillageShell",
     "create_grillage",
+    "InfluenceResultSet",
     # Members & sections
     "GrillageMember",
     "Section",
@@ -59,10 +60,14 @@ __all__ = [
     "create_point",
     # Post-processing & plotting
     "Envelope",
+    "InfluenceLine",
+    "InfluenceSurface",
     "Members",
     "PostProcessor",
     "create_envelope",
     "model_proxy_from_results",
+    "create_influence_line",
+    "create_influence_surface",
     "plot_force",
     "plot_bmd",
     "plot_sfd",

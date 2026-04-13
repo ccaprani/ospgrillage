@@ -12,7 +12,9 @@ import json
 import matplotlib.pyplot as plt
 import opsvis as opsv
 import numpy as np
+import re
 from typing import TYPE_CHECKING, Union
+import xarray as xr
 
 # if TYPE_CHECKING:
 from ospgrillage.load import ShapeFunction
@@ -20,10 +22,14 @@ from ospgrillage.utils import solve_zeta_eta
 
 __all__ = [
     "Envelope",
+    "InfluenceLine",
+    "InfluenceSurface",
     "Members",
     "PostProcessor",
     "create_envelope",
     "model_proxy_from_results",
+    "create_influence_line",
+    "create_influence_surface",
     "plot_force",
     "plot_bmd",
     "plot_sfd",
@@ -130,6 +136,9 @@ def model_proxy_from_results(ds):
 # default"; ``title=None`` means "no title"; ``title="..."`` is a custom
 # override.
 _AUTO = object()
+_LOADCASE_POSITION_RE = re.compile(
+    r"^(?P<name>.+) at global position \[(?P<x>[-+\d.eE]+),(?P<y>[-+\d.eE]+),(?P<z>[-+\d.eE]+)\]$"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +210,143 @@ def create_envelope(**kwargs):
     :returns: :class:`Envelope` object.
     """
     return Envelope(**kwargs)
+
+
+def create_influence_line(**kwargs):
+    """
+    Create an influence line object from stored moving-load or grid-load results.
+
+    The helper extracts one response quantity from an ``xarray.Dataset`` and
+    reindexes it against one load-position coordinate, typically ``x`` for a
+    driving-lane influence line.
+
+    :param ds: Result DataSet from :func:`~ospgrillage.osp_grillage.OspGrillage.get_results`.
+    :type ds: xarray.Dataset
+    :param component: Specific response component to extract.
+    :type component: str
+    :param array: Data array to query, e.g. ``"displacements"``, ``"forces"``,
+        ``"forces_beam"``, or ``"forces_shell"``.
+    :type array: str, optional
+    :param load_coord: Load-position coordinate to use as the influence-line axis.
+        One of ``"x"``, ``"y"``, or ``"z"``. Defaults to ``"x"``.
+    :type load_coord: str, optional
+    :param loadcase: Optional load case name or list of names to include.
+    :type loadcase: str or list[str], optional
+    :param values: Optional explicit ``(x, y, z)`` load positions corresponding to
+        the selected load cases. If omitted, positions are parsed from the
+        ``Loadcase`` coordinate strings.
+    :type values: list[tuple[float, float, float]], optional
+    :param node: Optional node tag or list of node tags to select.
+    :type node: int or list[int], optional
+    :param element: Optional element tag or list of element tags to select.
+    :type element: int or list[int], optional
+    :returns: :class:`InfluenceLine` object.
+    """
+    return InfluenceLine(**kwargs)
+
+
+def create_influence_surface(**kwargs):
+    """
+    Create an influence surface object from stored results.
+
+    The helper extracts one response quantity from an ``xarray.Dataset`` and
+    reshapes it onto a 2D load-position grid, typically ``x`` by ``z`` for
+    bridge deck influence surfaces.
+
+    :param ds: Result DataSet from :func:`~ospgrillage.osp_grillage.OspGrillage.get_results`.
+    :type ds: xarray.Dataset
+    :param component: Specific response component to extract.
+    :type component: str
+    :param array: Data array to query, e.g. ``"displacements"``, ``"forces"``,
+        ``"forces_beam"``, or ``"forces_shell"``.
+    :type array: str, optional
+    :param x_coord: Load-position coordinate to use on the first surface axis.
+        Defaults to ``"x"``.
+    :type x_coord: str, optional
+    :param y_coord: Load-position coordinate to use on the second surface axis.
+        Defaults to ``"z"``.
+    :type y_coord: str, optional
+    :param loadcase: Optional load case name or list of names to include.
+    :type loadcase: str or list[str], optional
+    :param values: Optional explicit ``(x, y, z)`` load positions corresponding to
+        the selected load cases. If omitted, positions are parsed from the
+        ``Loadcase`` coordinate strings.
+    :type values: list[tuple[float, float, float]], optional
+    :param node: Optional node tag or list of node tags to select.
+    :type node: int or list[int], optional
+    :param element: Optional element tag or list of element tags to select.
+    :type element: int or list[int], optional
+    :returns: :class:`InfluenceSurface` object.
+    """
+    return InfluenceSurface(**kwargs)
+
+
+def _parse_loadcase_position(loadcase_name):
+    match = _LOADCASE_POSITION_RE.match(str(loadcase_name))
+    if not match:
+        raise ValueError(
+            "Unable to determine load position from Loadcase={!r}. "
+            "Expected names like '<load name> at global position [x,y,z]' "
+            "or pass values=[(x, y, z), ...].".format(loadcase_name)
+        )
+    return (
+        float(match.group("x")),
+        float(match.group("y")),
+        float(match.group("z")),
+    )
+
+
+def _normalise_loadcase_selection(loadcase):
+    if loadcase is None:
+        return None
+    if isinstance(loadcase, str):
+        return [loadcase]
+    return list(loadcase)
+
+
+def _select_response_data(ds, array, component, node=None, element=None, loadcase=None):
+    da = getattr(ds, array)
+    sel_kwargs = {"Component": component}
+    if "Node" in da.dims and node is not None:
+        sel_kwargs["Node"] = node
+    if "Element" in da.dims and element is not None:
+        sel_kwargs["Element"] = element
+    if loadcase is not None:
+        sel_kwargs["Loadcase"] = _normalise_loadcase_selection(loadcase)
+    return da.sel(**sel_kwargs)
+
+
+def _get_position_index(da, values=None):
+    loadcases = da.coords["Loadcase"].values.tolist()
+    if values is None:
+        if all(
+            coord in da.coords
+            for coord in ("load_position_x", "load_position_y", "load_position_z")
+        ):
+            positions = list(
+                zip(
+                    da.coords["load_position_x"].values.tolist(),
+                    da.coords["load_position_y"].values.tolist(),
+                    da.coords["load_position_z"].values.tolist(),
+                )
+            )
+        else:
+            positions = [_parse_loadcase_position(name) for name in loadcases]
+    else:
+        positions = [tuple(map(float, position)) for position in values]
+        if len(positions) != len(loadcases):
+            raise ValueError(
+                "values= must have the same length as the selected Loadcase coordinate"
+            )
+    return xr.DataArray(
+        np.asarray(positions, dtype=float),
+        dims=("Loadcase", "position_component"),
+        coords={
+            "Loadcase": da.coords["Loadcase"].values,
+            "position_component": ["x", "y", "z"],
+        },
+        name="load_position",
+    )
 
 
 class Envelope:
@@ -302,6 +448,96 @@ class Envelope:
         """
         da = getattr(self.ds, self.array)
         return getattr(da, self.selected_xarray_command)(dim="Loadcase")
+
+
+class _BaseInfluence:
+    """Shared implementation for influence-line and influence-surface helpers."""
+
+    def __init__(self, ds, component: str = None, **kwargs):
+        self.ds = ds
+        self.component = component if component is not None else kwargs.get("load_effect", None)
+        self.array = kwargs.get("array", "displacements")
+        self.node = kwargs.get("node", None)
+        self.element = kwargs.get("element", None)
+        self.loadcase = kwargs.get("loadcase", None)
+        self.values = kwargs.get("values", None)
+
+        if ds is None:
+            raise ValueError("Missing ds=: an xarray Dataset is required")
+        if self.component is None:
+            raise ValueError("Missing component=: specify a Component label to extract")
+
+    def _get_base_response(self):
+        da = _select_response_data(
+            ds=self.ds,
+            array=self.array,
+            component=self.component,
+            node=self.node,
+            element=self.element,
+            loadcase=self.loadcase,
+        )
+        if "Loadcase" not in da.dims:
+            raise ValueError(
+                "Selected response does not have a Loadcase dimension. Influence queries "
+                "require results for multiple loading positions."
+            )
+        return da, _get_position_index(da, values=self.values)
+
+
+class InfluenceLine(_BaseInfluence):
+    """
+    Class for extracting a response history against one load-position coordinate.
+
+    Call :func:`InfluenceLine.get` to obtain an ``xarray.DataArray`` indexed by
+    the selected load-position axis.
+    """
+
+    def __init__(self, ds, component: str = None, **kwargs):
+        super().__init__(ds=ds, component=component, **kwargs)
+        self.load_coord = kwargs.get("load_coord", "x")
+        if self.load_coord not in {"x", "y", "z"}:
+            raise ValueError("load_coord must be one of 'x', 'y', or 'z'")
+
+    def get(self):
+        da, position_index = self._get_base_response()
+        da = da.assign_coords(
+            x=("Loadcase", position_index.sel(position_component="x").values),
+            y=("Loadcase", position_index.sel(position_component="y").values),
+            z=("Loadcase", position_index.sel(position_component="z").values),
+        )
+        da = da.swap_dims({"Loadcase": self.load_coord}).sortby(self.load_coord)
+        return da.drop_vars("Loadcase", errors="ignore")
+
+
+class InfluenceSurface(_BaseInfluence):
+    """
+    Class for extracting a response field across a 2D load-position grid.
+
+    Call :func:`InfluenceSurface.get` to obtain an ``xarray.DataArray`` indexed by
+    two load-position coordinates.
+    """
+
+    def __init__(self, ds, component: str = None, **kwargs):
+        super().__init__(ds=ds, component=component, **kwargs)
+        self.x_coord = kwargs.get("x_coord", "x")
+        self.y_coord = kwargs.get("y_coord", "z")
+        valid_coords = {"x", "y", "z"}
+        if self.x_coord not in valid_coords or self.y_coord not in valid_coords:
+            raise ValueError("x_coord and y_coord must each be one of 'x', 'y', or 'z'")
+        if self.x_coord == self.y_coord:
+            raise ValueError("x_coord and y_coord must be different coordinates")
+
+    def get(self):
+        da, position_index = self._get_base_response()
+        da = da.assign_coords(
+            x=("Loadcase", position_index.sel(position_component="x").values),
+            y=("Loadcase", position_index.sel(position_component="y").values),
+            z=("Loadcase", position_index.sel(position_component="z").values),
+        )
+        if da.indexes.get("Loadcase", None) is not None and not da.indexes["Loadcase"].is_unique:
+            raise ValueError("Loadcase coordinates must be unique before building an influence surface")
+        da = da.set_index(Loadcase=[self.x_coord, self.y_coord]).unstack("Loadcase")
+        return da.sortby(self.x_coord).sortby(self.y_coord)
 
 
 # ---------------------------------------------------------------------------
