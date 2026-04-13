@@ -1850,3 +1850,88 @@ class ShapeFunction:
         N2 = a2 + b2 * x + c2 * z
         N3 = a3 + b3 * x + c3 * z
         return [N1, N2, N3]
+
+    @staticmethod
+    def dkt_triangle_shape_function(x, z, x1, z1, x2, z2, x3, z3):
+        """
+        Compute a DKT-style concentrated-load shape-function vector for a 3-node triangle.
+
+        The interpolation follows the discrete Kirchhoff triangle edge assumptions:
+        a quadratic six-node triangle is used for the transverse displacement field,
+        while the midside transverse displacements are condensed to the three corner
+        nodes by the cubic edge relation. The resulting nine coefficients map directly
+        to the grillage nodal load tuple ``(Fy, Mx, Mz)`` for each corner node.
+
+        Parameters
+        ----------
+        x, z : float
+            Evaluation point in the grillage plane.
+        x1, z1, x2, z2, x3, z3 : float
+            Triangle corner coordinates ordered counter-clockwise.
+
+        Returns
+        -------
+        tuple of list
+            ``(Nv, Nmx, Nmz)`` where:
+
+            - ``Nv`` are the vertical-force coefficients for the three corner nodes
+            - ``Nmx`` are the coefficients conjugate to rotation about the global x-axis
+            - ``Nmz`` are the coefficients conjugate to rotation about the global z-axis
+
+        Notes
+        -----
+        In the package model plane ``(x, z)``, the DKT bending rotations associated with
+        the first in-plane direction map to nodal ``Mz`` loads, while the second in-plane
+        direction maps to nodal ``Mx`` loads.
+        """
+        # Barycentric coordinates L1, L2, L3 for the point.
+        L1, L2, L3 = ShapeFunction.linear_triangular(
+            x=x, z=z, x1=x1, z1=z1, x2=x2, z2=z2, x3=x3, z3=z3
+        )
+
+        # Six-node triangle quadratic shape functions used by the DKT formulation.
+        N1 = L1 * (2 * L1 - 1)
+        N2 = L2 * (2 * L2 - 1)
+        N3 = L3 * (2 * L3 - 1)
+        N4 = 4 * L2 * L3
+        N5 = 4 * L3 * L1
+        N6 = 4 * L1 * L2
+
+        def _edge_data(xi, zi, xj, zj):
+            dx = xj - xi
+            dz = zj - zi
+            length = float(np.hypot(dx, dz))
+            return length, dx / length, dz / length
+
+        # Edge numbering follows the DKT appendix: 4 -> 23, 5 -> 31, 6 -> 12.
+        l23, c23, s23 = _edge_data(x2, z2, x3, z3)
+        l31, c31, s31 = _edge_data(x3, z3, x1, z1)
+        l12, c12, s12 = _edge_data(x1, z1, x2, z2)
+
+        a23 = l23 / 8.0
+        a31 = l31 / 8.0
+        a12 = l12 / 8.0
+
+        # Corner-node transverse displacement coefficients after midside condensation.
+        Nv = [
+            N1 + 0.5 * N5 + 0.5 * N6,
+            N2 + 0.5 * N4 + 0.5 * N6,
+            N3 + 0.5 * N4 + 0.5 * N5,
+        ]
+
+        # DKT tangential rotations condensed to corner bending DOFs.
+        # In ospgrillage's x-z model plane:
+        # - the first in-plane rotation maps to nodal Mz
+        # - the second in-plane rotation maps to nodal Mx
+        Nmz = [
+            a31 * c31 * N5 - a12 * c12 * N6,
+            -a23 * c23 * N4 + a12 * c12 * N6,
+            a23 * c23 * N4 - a31 * c31 * N5,
+        ]
+        Nmx = [
+            a31 * s31 * N5 - a12 * s12 * N6,
+            -a23 * s23 * N4 + a12 * s12 * N6,
+            a23 * s23 * N4 - a31 * s31 * N5,
+        ]
+
+        return Nv, Nmx, Nmz

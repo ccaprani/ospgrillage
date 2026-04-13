@@ -1456,3 +1456,97 @@ def test_shape_function_hermite_1d_length():
     """hermite_shape_function_1d must return four terms."""
     result = og.ShapeFunction.hermite_shape_function_1d(zeta=0.5, a=1.0)
     assert len(result) == 4
+
+
+def test_hermite_shape_function_2d_reproduces_quad_corner():
+    """The quadrilateral Hermite shape function should reproduce the corner-node load."""
+    Nv, Nmx, Nmz = og.ShapeFunction.hermite_shape_function_2d(eta=-1.0, zeta=-1.0)
+
+    assert np.allclose(Nv, [1.0, 0.0, 0.0, 0.0])
+    assert np.allclose(Nmx, [0.0, 0.0, 0.0, 0.0])
+    assert np.allclose(Nmz, [0.0, 0.0, 0.0, 0.0])
+
+
+def test_hermite_shape_function_2d_centre_partition_and_equilibrium():
+    """At the element centre, the quadrilateral Hermite force terms should partition uniformly."""
+    Nv, Nmx, Nmz = og.ShapeFunction.hermite_shape_function_2d(eta=0.0, zeta=0.0)
+
+    assert np.allclose(Nv, [0.25, 0.25, 0.25, 0.25])
+    assert np.isclose(sum(Nv), 1.0)
+    assert np.isclose(sum(Nmx), 0.0)
+    assert np.isclose(sum(Nmz), 0.0)
+
+
+def test_dkt_triangle_shape_function_reproduces_corner_node():
+    """The condensed DKT triangle should reproduce the corner-node load exactly."""
+    Nv, Nmx, Nmz = og.ShapeFunction.dkt_triangle_shape_function(
+        x=0.0,
+        z=0.0,
+        x1=0.0,
+        z1=0.0,
+        x2=1.0,
+        z2=0.0,
+        x3=0.0,
+        z3=1.0,
+    )
+
+    assert np.allclose(Nv, [1.0, 0.0, 0.0])
+    assert np.allclose(Nmx, [0.0, 0.0, 0.0])
+    assert np.allclose(Nmz, [0.0, 0.0, 0.0])
+
+
+def test_dkt_triangle_shape_function_centroid_partition_and_equilibrium():
+    """At the centroid, the condensed DKT triangle should partition force evenly."""
+    x1, z1 = 0.0, 0.0
+    x2, z2 = 1.0, 0.0
+    x3, z3 = 0.0, 1.0
+    xc = (x1 + x2 + x3) / 3
+    zc = (z1 + z2 + z3) / 3
+
+    Nv, Nmx, Nmz = og.ShapeFunction.dkt_triangle_shape_function(
+        x=xc,
+        z=zc,
+        x1=x1,
+        z1=z1,
+        x2=x2,
+        z2=z2,
+        x3=x3,
+        z3=z3,
+    )
+
+    assert np.allclose(Nv, [1 / 3, 1 / 3, 1 / 3])
+    assert np.isclose(sum(Nv), 1.0)
+    assert np.isclose(sum(Nmx), 0.0)
+    assert np.isclose(sum(Nmz), 0.0)
+
+
+def test_hermite_triangle_region_uses_dkt_style_distribution(bridge_model_42_negative):
+    """A 3-node grillage region should use the DKT-style distributor for hermite loads."""
+    og.ops.wipeAnalysis()
+    bridge = bridge_model_42_negative
+
+    tri_grid_nodes = None
+    for nodes in bridge.Mesh_obj.grid_number_dict.values():
+        if len(nodes) == 3:
+            tri_grid_nodes = nodes
+            break
+
+    assert tri_grid_nodes is not None
+    coords = [bridge.Mesh_obj.node_spec[node]["coordinate"] for node in tri_grid_nodes]
+    point = [
+        sum(coord[0] for coord in coords) / 3,
+        0,
+        sum(coord[2] for coord in coords) / 3,
+    ]
+
+    load_cmd = bridge._assign_load_to_four_node(point=point, mag=1.0, shape_func="hermite")
+
+    assert len(load_cmd) == 3
+    vertical_sum = sum(command[1][2] for command in load_cmd)
+    mx_sum = sum(command[1][4] for command in load_cmd)
+    mz_sum = sum(command[1][6] for command in load_cmd)
+    assert any(abs(command[1][4]) > 0 for command in load_cmd)
+    assert any(abs(command[1][6]) > 0 for command in load_cmd)
+    assert np.isclose(vertical_sum, 1.0)
+    assert np.isclose(mx_sum, 0.0)
+    assert np.isclose(mz_sum, 0.0)

@@ -1574,19 +1574,36 @@ class OspGrillage:
         ]
         if len(grid_nodes) == 3:
             sorted_list, sorted_node_tag = sort_vertices(point_list, grid_nodes)
-            Nv = ShapeFunction.linear_triangular(
-                x=point[0],
-                z=point[2],
-                x1=sorted_list[0].x,
-                z1=sorted_list[0].z,
-                x2=sorted_list[1].x,
-                z2=sorted_list[1].z,
-                x3=sorted_list[2].x,
-                z3=sorted_list[2].z,
-            )
-            node_load = [mag * n for n in Nv]
-            node_mx = np.zeros(len(node_load))
-            node_mz = np.zeros(len(node_load))
+            if shape_func == "hermite":
+                # Three-node regions use a DKT-style condensed point-load distributor so
+                # skew-edge/corner triangles remain compatible with the higher-order path.
+                Nv, node_mx_shape, node_mz_shape = ShapeFunction.dkt_triangle_shape_function(
+                    x=point[0],
+                    z=point[2],
+                    x1=sorted_list[0].x,
+                    z1=sorted_list[0].z,
+                    x2=sorted_list[1].x,
+                    z2=sorted_list[1].z,
+                    x3=sorted_list[2].x,
+                    z3=sorted_list[2].z,
+                )
+                node_load = [mag * n for n in Nv]
+                node_mx = [mag * n for n in node_mx_shape]
+                node_mz = [mag * n for n in node_mz_shape]
+            else:
+                Nv = ShapeFunction.linear_triangular(
+                    x=point[0],
+                    z=point[2],
+                    x1=sorted_list[0].x,
+                    z1=sorted_list[0].z,
+                    x2=sorted_list[1].x,
+                    z2=sorted_list[1].z,
+                    x3=sorted_list[2].x,
+                    z3=sorted_list[2].z,
+                )
+                node_load = [mag * n for n in Nv]
+                node_mx = np.zeros(len(node_load))
+                node_mz = np.zeros(len(node_load))
         else:  # else run assignment for quadrilateral grids
             # extract coordinates of fourth point
             p4 = self.Mesh_obj.node_spec[grid_nodes[3]][
