@@ -2186,7 +2186,7 @@ def plot_srf(
     show : bool
         Display the plot immediately.  Default ``True`` for plotly,
         ``False`` for matplotlib.
-    **kwargs
+    kwargs : dict, optional
         Forwarded to the backend renderer.  Accepted keys include
         *figsize*, *title*, *opacity*, *show_colorbar*, *averaging*,
         and *ax* / *fig* for composing onto an existing figure.
