@@ -925,6 +925,7 @@ def plot_is(isurface, **kwargs):
     colorscale = kwargs.get("colorscale", "RdBu_r")
     view = kwargs.get("view", "contour")
     coordinate_space = kwargs.get("coordinate_space", "auto")
+    contour_levels = kwargs.get("levels", 20)
 
     plot_data = _prepare_influence_surface_plot_data(isurface, coordinate_space)
     z = plot_data["ordinate"]
@@ -966,14 +967,14 @@ def plot_is(isurface, **kwargs):
                     tri_data["y"],
                     tri_data["triangles"],
                 )
-                contour = ax.tripcolor(
+                contour = ax.tricontourf(
                     tri,
                     tri_data["z"],
+                    levels=contour_levels,
                     cmap=colorscale,
-                    shading="gouraud",
                 )
             else:
-                contour = ax.contourf(x_grid, y_grid, z, cmap=colorscale)
+                contour = ax.contourf(x_grid, y_grid, z, levels=contour_levels, cmap=colorscale)
             plt.colorbar(contour, ax=ax, label="ordinate")
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)

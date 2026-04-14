@@ -615,6 +615,108 @@ def test_analyze_influence_surfaces_defaults_to_mesh_station_grid(bridge_model_4
     assert station_surface.dims == ("longitudinal_station", "transverse_station")
 
 
+@pytest.mark.parametrize(
+    "bridge_fixture",
+    ["bridge_model_42_negative", "bridge_42_0_angle_mesh"],
+)
+def test_influence_surface_station_mapping_preserves_longitudinal_order(request, bridge_fixture):
+    og.ops.wipeAnalysis()
+    example_bridge = request.getfixturevalue(bridge_fixture)
+
+    iss = example_bridge.analyze_influence_surfaces(name="Deck IS Station Ordering")
+    station_surface = iss.get_surface(
+        array="forces",
+        component="Mz_i",
+        element=1,
+        x_coord="longitudinal_station",
+        y_coord="transverse_station",
+    )
+
+    transverse_stations = np.asarray(
+        station_surface.coords["transverse_station"].values,
+        dtype=float,
+    )
+    longitudinal_stations = np.asarray(
+        station_surface.coords["longitudinal_station"].values,
+        dtype=float,
+    )
+    assert transverse_stations.size > 0
+    assert longitudinal_stations.size > 1
+
+    first_transverse = float(transverse_stations[0])
+    x_line = np.asarray(
+        station_surface.sel(transverse_station=first_transverse).coords["x"].values,
+        dtype=float,
+    )
+    finite = np.isfinite(x_line)
+    assert np.count_nonzero(finite) == longitudinal_stations.size
+    assert np.all(np.diff(x_line[finite]) >= -1e-9)
+
+
+@pytest.mark.parametrize("mesh_radius", [20.0, 1000.0])
+def test_analyze_influence_surfaces_curved_mesh_station_mapping(ref_bridge_properties, mesh_radius):
+    og.ops.wipeAnalysis()
+    I_beam, slab, exterior_I_beam, _ = ref_bridge_properties
+
+    example_bridge = og.create_grillage(
+        bridge_name=f"Curved IS R={mesh_radius:g}",
+        long_dim=10,
+        width=7,
+        skew=0,
+        num_long_grid=7,
+        num_trans_grid=7,
+        mesh_type="Ortho",
+        mesh_radius=mesh_radius,
+    )
+    example_bridge.set_member(I_beam, member="interior_main_beam")
+    example_bridge.set_member(exterior_I_beam, member="exterior_main_beam_1")
+    example_bridge.set_member(exterior_I_beam, member="exterior_main_beam_2")
+    example_bridge.set_member(exterior_I_beam, member="edge_beam")
+    example_bridge.set_member(slab, member="transverse_slab")
+    example_bridge.set_member(exterior_I_beam, member="start_edge")
+    example_bridge.set_member(exterior_I_beam, member="end_edge")
+    example_bridge.create_osp_model(pyfile=False)
+
+    iss = example_bridge.analyze_influence_surfaces(name="Curved Deck IS")
+    station_surface = iss.get_surface(
+        array="forces",
+        component="Mz_i",
+        element=1,
+        x_coord="longitudinal_station",
+        y_coord="transverse_station",
+    )
+
+    longitudinal_stations = np.asarray(
+        station_surface.coords["longitudinal_station"].values,
+        dtype=float,
+    )
+    transverse_stations = np.asarray(
+        station_surface.coords["transverse_station"].values,
+        dtype=float,
+    )
+    assert station_surface.shape == (len(longitudinal_stations), len(transverse_stations))
+    assert len(longitudinal_stations) == len(np.asarray(example_bridge.Mesh_obj.nox, dtype=float))
+    assert len(transverse_stations) == len(np.asarray(example_bridge.Mesh_obj.noz, dtype=float))
+
+    for z_station in transverse_stations:
+        x_line = np.asarray(
+            station_surface.sel(transverse_station=float(z_station)).coords["x"].values,
+            dtype=float,
+        )
+        finite = np.isfinite(x_line)
+        assert np.count_nonzero(finite) == len(longitudinal_stations)
+        assert np.all(np.diff(x_line[finite]) >= -1e-9)
+
+    for longitudinal_station in longitudinal_stations:
+        z_line = np.asarray(
+            station_surface.sel(longitudinal_station=float(longitudinal_station)).coords["z"].values,
+            dtype=float,
+        )
+        finite = np.isfinite(z_line)
+        assert np.count_nonzero(finite) == len(transverse_stations)
+        assert np.all(np.diff(z_line[finite]) >= -1e-9)
+
+
 def test_influence_line_results_to_csv_combined_paths(bridge_model_42_negative, tmp_path):
     og.ops.wipeAnalysis()
     example_bridge = bridge_model_42_negative
@@ -718,7 +820,7 @@ def test_influence_surface_results_to_csv_grid_and_points(bridge_model_42_negati
     assert len(long_rows) > 1
 
 
-def test_influence_surface_results_plot_defaults_station_space(
+def test_influence_surface_results_plot_defaults_auto_space(
     bridge_model_42_negative,
     monkeypatch,
 ):
@@ -742,7 +844,7 @@ def test_influence_surface_results_plot_defaults_station_space(
         y_coord="transverse_station",
         show=False,
     )
-    assert captured["coordinate_space"] == "station"
+    assert captured["coordinate_space"] is None
 
     iss.plot(
         array="forces",

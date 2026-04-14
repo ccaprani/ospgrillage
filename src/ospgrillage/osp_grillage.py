@@ -466,13 +466,7 @@ class InfluenceSurfaceResults(_BaseInfluenceResults):
 
     def plot(self, **kwargs):
         """Reduce and plot one influence surface."""
-        plot_kwargs = dict(kwargs)
-        if "coordinate_space" not in plot_kwargs:
-            x_coord = kwargs.get("x_coord", "x")
-            y_coord = kwargs.get("y_coord", "z")
-            if str(x_coord).endswith("_station") or str(y_coord).endswith("_station"):
-                plot_kwargs["coordinate_space"] = "station"
-        return plot_influence_surface(self.get_surface(**kwargs), **plot_kwargs)
+        return plot_influence_surface(self.get_surface(**kwargs), **kwargs)
 
     def _default_surface_axes(self, kwargs):
         """Return selector kwargs with station axes preferred when available."""
@@ -3056,15 +3050,210 @@ class OspGrillage:
             if current is None or score < current[1]:
                 station_to_coord[key] = (coord, score)
 
+        if not station_to_coord:
+            raise ValueError("No mesh station groups were found for influence-surface sampling")
+
+        # Build longitudinal adjacency by row (constant z-group) from beam connectivity.
+        row_adjacency = {}
+        long_like_elements = list(getattr(self.Mesh_obj, "long_ele", [])) + list(
+            getattr(self.Mesh_obj, "connect_ele", [])
+        )
+        for element in long_like_elements:
+            if len(element) < 3:
+                continue
+            node_i = self.Mesh_obj.node_spec.get(element[1], {})
+            node_j = self.Mesh_obj.node_spec.get(element[2], {})
+            x_group_i = node_i.get("x_group")
+            x_group_j = node_j.get("x_group")
+            z_group_i = node_i.get("z_group")
+            z_group_j = node_j.get("z_group")
+            if (
+                not isinstance(x_group_i, (int, np.integer))
+                or not isinstance(x_group_j, (int, np.integer))
+                or not isinstance(z_group_i, (int, np.integer))
+                or not isinstance(z_group_j, (int, np.integer))
+            ):
+                continue
+            x_group_i = int(x_group_i)
+            x_group_j = int(x_group_j)
+            z_group_i = int(z_group_i)
+            z_group_j = int(z_group_j)
+            if z_group_i != z_group_j or x_group_i == x_group_j:
+                continue
+            row_adj = row_adjacency.setdefault(z_group_i, {})
+            row_adj.setdefault(x_group_i, set()).add(x_group_j)
+            row_adj.setdefault(x_group_j, set()).add(x_group_i)
+
+        edge_node_recorder = getattr(self.Mesh_obj, "edge_node_recorder", None)
+        first_edge = (
+            min(edge_node_recorder.values())
+            if isinstance(edge_node_recorder, dict) and edge_node_recorder
+            else None
+        )
+
+        def _row_start_group(z_group, row_groups, adjacency, x_coords):
+            if first_edge is not None:
+                counts = {}
+                for node_tag, edge_id in edge_node_recorder.items():
+                    if edge_id != first_edge:
+                        continue
+                    node_data = self.Mesh_obj.node_spec.get(node_tag, {})
+                    node_z_group = node_data.get("z_group")
+                    node_x_group = node_data.get("x_group")
+                    if (
+                        not isinstance(node_z_group, (int, np.integer))
+                        or not isinstance(node_x_group, (int, np.integer))
+                    ):
+                        continue
+                    if int(node_z_group) != z_group:
+                        continue
+                    node_x_group = int(node_x_group)
+                    if node_x_group not in row_groups:
+                        continue
+                    counts[node_x_group] = counts.get(node_x_group, 0) + 1
+                if counts:
+                    return max(counts, key=counts.get)
+
+            end_groups = [group for group in row_groups if len(adjacency.get(group, set())) <= 1]
+            if end_groups:
+                return min(end_groups, key=lambda group: x_coords[group])
+            return min(row_groups, key=lambda group: x_coords[group])
+
+        def _order_row_groups(z_group):
+            row_groups = sorted(
+                {
+                    group_x
+                    for (group_x, group_z) in station_to_coord
+                    if group_z == z_group
+                }
+            )
+            if not row_groups:
+                return []
+            x_coords = {
+                group_x: float(station_to_coord[(group_x, z_group)][0][0])
+                for group_x in row_groups
+            }
+            adjacency = {group: set() for group in row_groups}
+            for group, neighbours in row_adjacency.get(z_group, {}).items():
+                if group not in adjacency:
+                    continue
+                adjacency[group].update([n for n in neighbours if n in adjacency])
+
+            start_group = _row_start_group(z_group, row_groups, adjacency, x_coords)
+            ordered = []
+            visited = set()
+            previous = None
+            current = start_group
+            while current is not None and current not in visited:
+                ordered.append(current)
+                visited.add(current)
+                neighbours = [
+                    group
+                    for group in adjacency.get(current, set())
+                    if group != previous and group not in visited
+                ]
+                if not neighbours:
+                    break
+                if len(neighbours) == 1:
+                    next_group = neighbours[0]
+                else:
+                    next_group = min(neighbours, key=lambda group: x_coords[group])
+                previous = current
+                current = next_group
+
+            if len(ordered) < len(row_groups):
+                remaining = [group for group in row_groups if group not in visited]
+                remaining.sort(key=lambda group: x_coords[group])
+                ordered.extend(remaining)
+            return ordered
+
+        row_data = {}
+        for z_group in sorted({group_z for _, group_z in station_to_coord}):
+            ordered_groups = _order_row_groups(z_group)
+            if not ordered_groups:
+                continue
+            points = np.asarray(
+                [station_to_coord[(group_x, z_group)][0] for group_x in ordered_groups],
+                dtype=float,
+            )
+            if len(points) == 1:
+                cumulative = np.asarray([0.0], dtype=float)
+            else:
+                segment_lengths = np.linalg.norm(
+                    np.diff(points[:, [0, 2]], axis=0),
+                    axis=1,
+                )
+                cumulative = np.concatenate([[0.0], np.cumsum(segment_lengths)])
+            row_data[z_group] = {
+                "points": points,
+                "cumulative": cumulative,
+                "z_ref": float(np.mean(points[:, 2])),
+            }
+
+        requested_z_indices = sorted(set(z_indices))
+        if len(row_data) < len(requested_z_indices):
+            raise ValueError("No admissible surface load positions were found for the requested station grid")
+
+        if all(z_idx in row_data for z_idx in requested_z_indices):
+            # In standard meshes the node z_group is the transverse station index.
+            # Keep that direct mapping to avoid cyclic row reorder on curved decks.
+            z_index_to_group = {z_idx: z_idx for z_idx in requested_z_indices}
+        else:
+            z_index_to_group = {}
+            remaining_groups = set(row_data.keys())
+            for z_idx in requested_z_indices:
+                target_z = z_station_values[z_idx]
+                chosen_group = min(
+                    remaining_groups,
+                    key=lambda group: abs(row_data[group]["z_ref"] - target_z),
+                )
+                z_index_to_group[z_idx] = chosen_group
+                remaining_groups.remove(chosen_group)
+
+        x_station_start = x_station_values[0]
+        x_station_end = x_station_values[-1]
+        x_station_span = x_station_end - x_station_start
+
+        def _station_ratio(station):
+            if np.isclose(x_station_span, 0.0):
+                return 0.0
+            return (station - x_station_start) / x_station_span
+
+        def _interpolate_row(row_points, cumulative, station):
+            ratio = float(np.clip(_station_ratio(station), 0.0, 1.0))
+            if len(row_points) == 1:
+                coord = row_points[0]
+                return float(coord[0]), float(coord[1]), float(coord[2])
+            total = cumulative[-1]
+            if np.isclose(total, 0.0):
+                coord = row_points[0]
+                return float(coord[0]), float(coord[1]), float(coord[2])
+            target = ratio * total
+            segment_index = int(np.searchsorted(cumulative, target, side="right") - 1)
+            segment_index = max(0, min(segment_index, len(cumulative) - 2))
+            segment_start = cumulative[segment_index]
+            segment_end = cumulative[segment_index + 1]
+            denom = segment_end - segment_start
+            local_ratio = 0.0 if np.isclose(denom, 0.0) else (target - segment_start) / denom
+            p0 = row_points[segment_index]
+            p1 = row_points[segment_index + 1]
+            interp = p0 + local_ratio * (p1 - p0)
+            return float(interp[0]), float(interp[1]), float(interp[2])
+
         load_positions = []
         station_positions = []
         for x_idx in x_indices:
             for z_idx in z_indices:
-                key = (x_idx, z_idx)
-                if key not in station_to_coord:
-                    continue
-                coord = station_to_coord[key][0]
-                load_positions.append((float(coord[0]), float(coord[1]), float(coord[2])))
+                z_group = z_index_to_group[z_idx]
+                row_points = row_data[z_group]["points"]
+                cumulative = row_data[z_group]["cumulative"]
+                if len(row_points) == len(x_station_values):
+                    # Use exact mesh row points when row station count matches.
+                    point = row_points[x_idx]
+                    coord = (float(point[0]), float(point[1]), float(point[2]))
+                else:
+                    coord = _interpolate_row(row_points, cumulative, x_station_values[x_idx])
+                load_positions.append(coord)
                 station_positions.append((x_station_values[x_idx], z_station_values[z_idx]))
 
         if not load_positions:
