@@ -8,6 +8,11 @@ load-distribution path used by *ospgrillage*: the existing Hermite
 quadrilateral distributor is used in four-node regions, while three-node skew
 regions use the DKT-style condensed triangular distributor.
 
+For skewed/curved bridges, influence-line station abscissa
+(``load_coord="station"``) and influence-surface station axes
+(``longitudinal_station``, ``transverse_station``) provide geometry-robust
+reduction coordinates independent of global Cartesian layout.
+
 OspGrillage methods
 -------------------
 

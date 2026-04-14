@@ -190,6 +190,21 @@ Influence lines support both the traditional `view="ordinate"` plot and a
 `view="path"` mode that draws the ordinates along the load path on top of the
 bridge model.
 
+### Technical notes (DKT and station mapping)
+
+- `shape_function="hermite"` uses the higher-order consistent-load path:
+  Hermite interpolation on quadrilateral regions, and a DKT-style condensed
+  triangular distributor where skew geometry creates 3-node regions.
+- Influence-line `load_coord="station"` is cumulative distance along each axle
+  path; this is typically preferred for skewed/curved paths because global `x`
+  is not a uniform path-abscissa there.
+- Influence-surface default generation uses admissible mesh station points
+  (not a global rectangular deck bounding box), then stores both station
+  coordinates and mapped physical (`x`,`z`) coordinates.
+- Physical plotting (`coordinate_space="physical"`) triangulates valid mapped
+  points so curved/skewed surfaces remain contiguous without assuming a
+  rectangular Cartesian deck.
+
 For a complete workflow, see the
 {doc}`../notebooks/influence_lines_and_surfaces` tutorial notebook.
 

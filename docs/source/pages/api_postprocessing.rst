@@ -12,6 +12,10 @@ For influence surfaces, :func:`~ospgrillage.postprocessing.plot_is` supports
 space uses mapped deck coordinates and triangulated rendering so curved/skewed
 decks are plotted as contiguous surfaces (Matplotlib and Plotly backends).
 
+For influence lines, :func:`~ospgrillage.postprocessing.plot_il` supports both
+``view="ordinate"`` and ``view="path"``. Path view overlays IL ordinates in
+3D along the load trajectory using model geometry embedded in the results file.
+
 Factory functions
 -----------------
 

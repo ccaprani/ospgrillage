@@ -824,12 +824,21 @@ class ResultsControlWidget(QWidget):
         self.influence_line_axis_combo = QComboBox()
         for axis in ("station", "x", "y", "z"):
             self.influence_line_axis_combo.addItem(axis)
+        self.influence_line_axis_combo.setToolTip(
+            "Influence-line abscissa. Use 'station' for cumulative path distance."
+        )
         self.influence_surface_x_combo = QComboBox()
         self.influence_surface_y_combo = QComboBox()
         for axis in ("x", "y", "z", "longitudinal_station", "transverse_station"):
             self.influence_surface_x_combo.addItem(axis)
             self.influence_surface_y_combo.addItem(axis)
         self.influence_surface_y_combo.setCurrentText("z")
+        self.influence_surface_x_combo.setToolTip(
+            "Surface reduction axis (x side). Plots are rendered in physical x-z space."
+        )
+        self.influence_surface_y_combo.setToolTip(
+            "Surface reduction axis (y side). Plots are rendered in physical x-z space."
+        )
         self.influence_surface_view_combo = QComboBox()
         for mode in ("contour", "surface3d"):
             self.influence_surface_view_combo.addItem(mode)
@@ -1197,7 +1206,14 @@ class BridgeAnalysisGUI(QMainWindow):
             "About ospgui",
             "ospgui — GUI for ospgrillage\n\n"
             "Wizard mode: define bridge grillage geometry\n"
-            "Results mode: view BMD/SFD/TMD/Deflection from .nc files\n\n"
+            "Results mode: view BMD/SFD/TMD/Deflection or Influence plots\n"
+            "from NetCDF result files.\n\n"
+            "Recommended file naming:\n"
+            "- ordinary: *.res.nc\n"
+            "- influence lines: *.il.nc\n"
+            "- influence surfaces: *.is.nc\n\n"
+            "Tabs are enabled automatically by dataset type.\n"
+            "Influence-surface plots are rendered in physical x-z space.\n\n"
             "ospgrillage v"
             + getattr(__import__("ospgrillage"), "__version__", "unknown"),
         )
@@ -1878,7 +1894,14 @@ from math import *
         self._results_kind = _classify_results_kind(ds)
         summary_name = os.path.basename(file_name)
         loadcase_count = len(ds.coords["Loadcase"].values) if "Loadcase" in ds.coords else 0
-        summary_text = f"{len(ds.data_vars)} variables, {loadcase_count} load cases"
+        kind_label = {
+            "ordinary": "Ordinary results",
+            "influence_line": "Influence line results",
+            "influence_surface": "Influence surface results",
+        }.get(self._results_kind, "Results")
+        summary_text = (
+            f"{kind_label} | {len(ds.data_vars)} variables, {loadcase_count} load cases"
+        )
 
         # Populate controls
         loadcase_names = []

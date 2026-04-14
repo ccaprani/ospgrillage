@@ -58,6 +58,12 @@ NetCDF file produced by
 results = bridge.get_results(save_filename="bridge_results.nc")
 ```
 
+Recommended naming is semantic NetCDF:
+
+- ordinary analysis results: `bridge.res.nc`
+- influence-line results: `bridge.il.nc`
+- influence-surface results: `bridge.is.nc`
+
 For ordinary analysis results, the interface switches to a results view with
 five interactive tabs:
 
@@ -86,9 +92,22 @@ same datasets remain available through Python with
 {func}`~ospgrillage.postprocessing.plot_il`, and
 {func}`~ospgrillage.postprocessing.plot_is`.
 
+The GUI classifies each loaded dataset and enables only relevant tabs:
+
+- ordinary results (`*.res.nc`) enable Deflection/BMD/SFD/TMD (and Shell Contour for shell models)
+- influence-line results (`*.il.nc`) enable only **Influence Line**
+- influence-surface results (`*.is.nc`) enable only **Influence Surface**
+
 Influence-surface plots in the GUI are always rendered in physical deck
 coordinates (`x`,`z`) using triangulated contiguous surfaces, which is
 more reliable for skewed and curved geometry.
+
+Practical interpretation of controls:
+
+- **IL Axis = `station`** uses cumulative distance along each path (best default
+  for skewed/curved lane paths).
+- **IS X/Y Axis** selects the reduction coordinates (for example station axes);
+  rendering still appears in mapped physical `x,z` coordinates.
 
 For influence-line overlays, save a combined influence-line Dataset with an
 `InfluenceLine` dimension and open that single file in the GUI. The
