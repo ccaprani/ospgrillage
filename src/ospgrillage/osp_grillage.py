@@ -2273,9 +2273,7 @@ class OspGrillage:
         # --- node coordinates DataArray ---
         node_spec = self.Mesh_obj.node_spec
         node_tags = sorted(node_spec.keys())
-        coord_data = np.array(
-            [node_spec[n]["coordinate"] for n in node_tags]
-        )
+        coord_data = np.array([node_spec[n]["coordinate"] for n in node_tags])
         ds["node_coordinates"] = xr.DataArray(
             coord_data,
             dims=("Node", "Axis"),
@@ -3227,7 +3225,8 @@ class Results:
                 for ele_num, stresses in analysis_obj.ele_stresses.items():
                     ele_stress_dict[ele_num] = stresses
                 self.basic_load_case_record_stresses.setdefault(
-                    analysis_obj.analysis_name, ele_stress_dict,
+                    analysis_obj.analysis_name,
+                    ele_stress_dict,
                 )
 
         # if moving load, input is a list of analysis obj
@@ -3523,10 +3522,11 @@ class Results:
                 if self.basic_load_case_record_stresses:
                     stress_list = []
                     for lc_name in basic_load_case_coord:
-                        lc_stresses = self.basic_load_case_record_stresses.get(lc_name, {})
+                        lc_stresses = self.basic_load_case_record_stresses.get(
+                            lc_name, {}
+                        )
                         lc_row = [
-                            lc_stresses.get(tag, [0.0] * 32)
-                            for tag in ele_tag_shell
+                            lc_stresses.get(tag, [0.0] * 32) for tag in ele_tag_shell
                         ]
                         stress_list.append(lc_row)
                     stress_array = np.array(stress_list)
