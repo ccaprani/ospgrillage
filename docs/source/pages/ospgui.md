@@ -51,13 +51,15 @@ post-processing — no Python scripting required.
 
 Use **File > Open Results (.nc)** (or Ctrl+O) to load a self-contained
 NetCDF file produced by
-{meth}`~ospgrillage.osp_grillage.OspGrillage.get_results`:
+{meth}`~ospgrillage.osp_grillage.OspGrillage.get_results` or
+{meth}`~ospgrillage.osp_grillage.OspGrillage.get_influence_results`:
 
 ```python
 results = bridge.get_results(save_filename="bridge_results.nc")
 ```
 
-The interface switches to a results view with five interactive tabs:
+For ordinary analysis results, the interface switches to a results view with
+five interactive tabs:
 
 | Tab | Contents |
 |---|---|
@@ -68,7 +70,30 @@ The interface switches to a results view with five interactive tabs:
 | **Shell Contour** | Shell element contour plot (shell_beam models only) |
 
 A left-hand panel provides **loadcase** and **member filter** controls
-that apply to all tabs.
+that apply to all ordinary-result tabs.
+
+Influence result files open in a dedicated query mode instead:
+
+| Dataset type | GUI tab | Key controls |
+|---|---|---|
+| **Influence line** | **Influence Line** | response array, component, node/element target, load-path axis |
+| **Influence surface** | **Influence Surface** | response array, component, node/element target, surface axes, contour/3-D surface view |
+
+Influence plots are rendered with the Plotly backend in the GUI, while the
+same datasets remain available through Python with
+{meth}`~ospgrillage.osp_grillage.OspGrillage.get_il`,
+{meth}`~ospgrillage.osp_grillage.OspGrillage.get_is`,
+{func}`~ospgrillage.postprocessing.plot_il`, and
+{func}`~ospgrillage.postprocessing.plot_is`.
+
+Influence-surface plots in the GUI are always rendered in physical deck
+coordinates (`x`,`z`) using triangulated contiguous surfaces, which is
+more reliable for skewed and curved geometry.
+
+For influence-line overlays, save a combined influence-line Dataset with an
+`InfluenceLine` dimension and open that single file in the GUI. The
+`IL Study` selector can then show one stored lane/path study or `All` on the
+same plot.
 
 ```{image} ../images/gui_results_deflection.png
 :width: 100%

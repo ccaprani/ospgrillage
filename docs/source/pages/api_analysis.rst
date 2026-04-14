@@ -15,6 +15,8 @@ OspGrillage methods
    :toctree: generated/
 
    ~ospgrillage.osp_grillage.OspGrillage.analyze
+   ~ospgrillage.osp_grillage.OspGrillage.analyze_influence_lines
+   ~ospgrillage.osp_grillage.OspGrillage.analyze_influence_surfaces
    ~ospgrillage.osp_grillage.OspGrillage.analyze_il
    ~ospgrillage.osp_grillage.OspGrillage.analyze_is
    ~ospgrillage.osp_grillage.OspGrillage.analyze_influence_line
@@ -48,3 +50,19 @@ InfluenceResultSet
 
 .. autoclass:: ospgrillage.osp_grillage.InfluenceResultSet
    :show-inheritance:
+
+InfluenceLineResults
+~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: ospgrillage.osp_grillage.InfluenceLineResults
+   :show-inheritance:
+
+   Includes ``plot()``, ``save()/to_netcdf()``, and ``to_csv()`` helpers.
+
+InfluenceSurfaceResults
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: ospgrillage.osp_grillage.InfluenceSurfaceResults
+   :show-inheritance:
+
+   Includes ``plot()``, ``save()/to_netcdf()``, and ``to_csv()`` helpers.

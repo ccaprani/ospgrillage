@@ -14,6 +14,7 @@ import sys
 import os
 
 import pytest
+import xarray as xr
 
 sys.path.insert(0, os.path.abspath("."))
 sys.path.insert(0, os.path.abspath("../"))
@@ -42,3 +43,42 @@ def test_ospgui_main_exits_when_pyqt6_absent(capsys):
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
     assert "pip install" in captured.err
+
+
+def test_ospgui_results_kind_classifier():
+    """Classification should identify ordinary, IL, and IS datasets robustly."""
+    mod = importlib.import_module("ospgrillage.ospgui")
+
+    ordinary = xr.Dataset(
+        coords={"Loadcase": ["LC1"], "Node": [1], "Component": ["y"]},
+        data_vars={"displacements": (["Loadcase", "Node", "Component"], [[[0.0]]])},
+    )
+    assert mod._classify_results_kind(ordinary) == "ordinary"
+
+    il_attr = xr.Dataset(coords={"Loadcase": ["LC1"]}, attrs={"influence_type": "line"})
+    assert mod._classify_results_kind(il_attr) == "influence_line"
+
+    is_attr = xr.Dataset(coords={"Loadcase": ["LC1"]}, attrs={"influence_type": "surface"})
+    assert mod._classify_results_kind(is_attr) == "influence_surface"
+
+    il_dim = xr.Dataset(coords={"InfluenceLine": ["Lane 1"], "Loadcase": [0, 1]})
+    assert mod._classify_results_kind(il_dim) == "influence_line"
+
+    is_station = xr.Dataset(
+        coords={
+            "Loadcase": [0, 1, 2, 3],
+            "load_position_longitudinal_station": ("Loadcase", [0, 0, 1, 1]),
+            "load_position_transverse_station": ("Loadcase", [0, 1, 0, 1]),
+        }
+    )
+    assert mod._classify_results_kind(is_station) == "influence_surface"
+
+    legacy_line = xr.Dataset(
+        coords={
+            "Loadcase": [0, 1, 2],
+            "load_position_x": ("Loadcase", [0.0, 1.0, 2.0]),
+            "load_position_z": ("Loadcase", [0.0, 0.5, 1.0]),
+        },
+        attrs={"influence_name": "Lane IL"},
+    )
+    assert mod._classify_results_kind(legacy_line) == "influence_line"

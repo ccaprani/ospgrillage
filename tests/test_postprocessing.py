@@ -1,4 +1,7 @@
+import csv
+
 from ospgrillage import __version__ as version
+import ospgrillage.osp_grillage as og_model
 from fixtures import *
 import xarray as xr
 
@@ -87,6 +90,278 @@ def test_influence_surface_from_explicit_positions():
     assert influence_surface.sel(x=1.0, z=3.0).item() == 13.0
 
 
+def test_influence_surface_sorts_unsorted_positions():
+    ds = xr.Dataset(
+        data_vars={
+            "forces": (
+                ["Loadcase", "Element", "Component"],
+                np.array(
+                    [
+                        [[13.0]],
+                        [[10.0]],
+                        [[11.0]],
+                        [[12.0]],
+                    ]
+                ),
+            )
+        },
+        coords={
+            "Loadcase": ["case_d", "case_a", "case_b", "case_c"],
+            "Element": [42],
+            "Component": ["Mz_i"],
+        },
+    )
+
+    influence_surface = og.create_influence_surface(
+        ds=ds,
+        array="forces",
+        load_effect="Mz_i",
+        element=42,
+        values=[
+            (1.0, 0.0, 3.0),
+            (0.0, 0.0, 2.0),
+            (1.0, 0.0, 2.0),
+            (0.0, 0.0, 3.0),
+        ],
+    ).get()
+
+    assert np.allclose(influence_surface.coords["x"].values, [0.0, 1.0])
+    assert np.allclose(influence_surface.coords["z"].values, [2.0, 3.0])
+    assert influence_surface.sel(x=0.0, z=2.0).item() == 10.0
+    assert influence_surface.sel(x=1.0, z=2.0).item() == 11.0
+    assert influence_surface.sel(x=0.0, z=3.0).item() == 12.0
+    assert influence_surface.sel(x=1.0, z=3.0).item() == 13.0
+
+
+def test_influence_line_station_uses_cumulative_path_distance():
+    ds = xr.Dataset(
+        data_vars={
+            "displacements": (
+                ["Loadcase", "Node", "Component"],
+                np.array([[[1.0]], [[2.0]], [[3.0]]]),
+            )
+        },
+        coords={
+            "Loadcase": ["a", "b", "c"],
+            "Node": [25],
+            "Component": ["y"],
+        },
+    )
+
+    il = og.create_influence_line(
+        ds=ds,
+        array="displacements",
+        component="y",
+        node=25,
+        load_coord="station",
+        values=[
+            (0.0, 0.0, 0.0),
+            (3.0, 0.0, 4.0),
+            (6.0, 0.0, 8.0),
+        ],
+    ).get()
+
+    assert il.dims == ("station",)
+    assert np.allclose(il.coords["station"].values, [0.0, 5.0, 10.0])
+    assert np.allclose(il.coords["x"].values, [0.0, 3.0, 6.0])
+    assert np.allclose(il.coords["z"].values, [0.0, 4.0, 8.0])
+
+
+def test_plot_influence_line_matplotlib():
+    il = xr.DataArray(
+        data=np.array([1.0, 2.0, 3.0]),
+        dims=("x",),
+        coords={"x": [0.0, 1.0, 2.0], "z": ("x", [2.0, 2.0, 2.0])},
+    )
+
+    ax = og.plot_il(il, title="IL", show=False)
+
+    assert ax.get_title() == "IL"
+    assert len(ax.lines) == 1
+
+
+def test_plot_influence_line_overlay_matplotlib():
+    il_a = xr.DataArray(data=np.array([1.0, 2.0, 3.0]), dims=("x",), coords={"x": [0.0, 1.0, 2.0]})
+    il_b = xr.DataArray(data=np.array([3.0, 2.0, 1.0]), dims=("x",), coords={"x": [0.0, 1.0, 2.0]})
+
+    ax = og.plot_il({"Lane 1": il_a, "Lane 2": il_b}, title="Overlay", show=False)
+
+    assert ax.get_title() == "Overlay"
+    assert len(ax.lines) == 2
+    assert ax.get_legend() is not None
+
+
+def test_plot_influence_surface_matplotlib():
+    isurface = xr.DataArray(
+        data=np.array([[10.0, 11.0], [12.0, 13.0]]),
+        dims=("x", "z"),
+        coords={"x": [0.0, 1.0], "z": [2.0, 3.0]},
+    )
+
+    ax = og.plot_is(isurface, title="IS", show=False)
+
+    assert ax.get_title() == "IS"
+    assert len(ax.collections) > 0
+
+
+def test_plot_influence_surface_matplotlib_surface3d():
+    isurface = xr.DataArray(
+        data=np.array([[10.0, 11.0], [12.0, 13.0]]),
+        dims=("x", "z"),
+        coords={"x": [0.0, 1.0], "z": [2.0, 3.0]},
+    )
+
+    ax = og.plot_is(isurface, title="IS 3D", view="surface3d", show=False)
+
+    assert ax.get_title() == "IS 3D"
+    assert hasattr(ax, "plot_surface")
+
+
+def _build_curved_influence_surface():
+    data = np.array(
+        [
+            [10.0, 11.0, 12.0],
+            [13.0, 14.0, 15.0],
+            [16.0, 17.0, np.nan],
+        ]
+    )
+    x_phys = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 1.1, 1.2],
+            [2.0, 2.2, np.nan],
+        ]
+    )
+    z_phys = np.array(
+        [
+            [0.0, 1.0, 2.0],
+            [0.2, 1.2, 2.2],
+            [0.5, 1.5, np.nan],
+        ]
+    )
+    return xr.DataArray(
+        data=data,
+        dims=("longitudinal_station", "transverse_station"),
+        coords={
+            "longitudinal_station": [0.0, 1.0, 2.0],
+            "transverse_station": [0.0, 1.0, 2.0],
+            "x": (("longitudinal_station", "transverse_station"), x_phys),
+            "z": (("longitudinal_station", "transverse_station"), z_phys),
+        },
+    )
+
+
+def test_plot_influence_surface_curved_physical_matplotlib():
+    isurface = _build_curved_influence_surface()
+
+    ax = og.plot_is(
+        isurface,
+        coordinate_space="physical",
+        title="Curved IS",
+        show=False,
+    )
+
+    assert ax.get_title() == "Curved IS"
+    assert len(ax.collections) > 0
+
+
+def test_plot_influence_line_plotly():
+    go = pytest.importorskip("plotly.graph_objects")
+    il = xr.DataArray(
+        data=np.array([1.0, 2.0, 3.0]),
+        dims=("x",),
+        coords={"x": [0.0, 1.0, 2.0]},
+    )
+
+    fig = og.plot_il(il, backend="plotly", title="IL", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.layout.title.text == "IL"
+
+
+def test_plot_influence_line_overlay_plotly():
+    go = pytest.importorskip("plotly.graph_objects")
+    il_a = xr.DataArray(data=np.array([1.0, 2.0, 3.0]), dims=("x",), coords={"x": [0.0, 1.0, 2.0]})
+    il_b = xr.DataArray(data=np.array([3.0, 2.0, 1.0]), dims=("x",), coords={"x": [0.0, 1.0, 2.0]})
+
+    fig = og.plot_il({"Lane 1": il_a, "Lane 2": il_b}, backend="plotly", title="Overlay", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 2
+
+
+def test_plot_influence_surface_plotly():
+    go = pytest.importorskip("plotly.graph_objects")
+    isurface = xr.DataArray(
+        data=np.array([[10.0, 11.0], [12.0, 13.0]]),
+        dims=("x", "z"),
+        coords={"x": [0.0, 1.0], "z": [2.0, 3.0]},
+    )
+
+    fig = og.plot_is(isurface, backend="plotly", title="IS", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.layout.title.text == "IS"
+
+
+def test_plot_influence_surface_plotly_surface3d():
+    go = pytest.importorskip("plotly.graph_objects")
+    isurface = xr.DataArray(
+        data=np.array([[10.0, 11.0], [12.0, 13.0]]),
+        dims=("x", "z"),
+        coords={"x": [0.0, 1.0], "z": [2.0, 3.0]},
+    )
+
+    fig = og.plot_is(isurface, backend="plotly", title="IS 3D", view="surface3d", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    assert fig.data[0].type == "surface"
+
+
+def test_normalise_netcdf_filename_semantic_suffixes():
+    assert og_model._normalise_netcdf_filename("results", file_tag="res") == "results.res.nc"
+    assert og_model._normalise_netcdf_filename("lane", file_tag="il") == "lane.il.nc"
+    assert og_model._normalise_netcdf_filename("surface", file_tag="is") == "surface.is.nc"
+    assert og_model._normalise_netcdf_filename("already.nc", file_tag="res") == "already.nc"
+    assert og_model._normalise_netcdf_filename("bridge.res", file_tag="res") == "bridge.res.nc"
+
+
+def test_plot_influence_surface_curved_physical_plotly_contour():
+    go = pytest.importorskip("plotly.graph_objects")
+    isurface = _build_curved_influence_surface()
+
+    fig = og.plot_is(
+        isurface,
+        backend="plotly",
+        coordinate_space="physical",
+        title="Curved IS",
+        show=False,
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    assert fig.data[0].type == "mesh3d"
+
+
+def test_plot_influence_surface_curved_physical_plotly_surface3d():
+    go = pytest.importorskip("plotly.graph_objects")
+    isurface = _build_curved_influence_surface()
+
+    fig = og.plot_is(
+        isurface,
+        backend="plotly",
+        coordinate_space="physical",
+        title="Curved IS 3D",
+        view="surface3d",
+        show=False,
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    assert fig.data[0].type == "mesh3d"
+
+
 def test_analyze_influence_line_separate_results(bridge_model_42_negative):
     og.ops.wipeAnalysis()
     example_bridge = bridge_model_42_negative
@@ -105,6 +380,151 @@ def test_analyze_influence_line_separate_results(bridge_model_42_negative):
     assert "Lane IL" in example_bridge.influence_result_set
     assert influence_results.sizes["Loadcase"] == 3
     assert np.allclose(influence_results.coords["load_position_x"].values, [2.0, 3.0, 4.0])
+    assert "node_coordinates" in influence_results
+    assert influence_results.attrs["model_type"] == example_bridge.model_type
+
+
+def test_analyze_influence_lines_returns_result_object(bridge_model_42_negative, tmp_path):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    ils = example_bridge.analyze_influence_lines(
+        name="Lane IL",
+        start_point=og.Point(2, 0, 2),
+        end_point=og.Point(4, 0, 2),
+        increments=3,
+    )
+
+    assert isinstance(ils, og.InfluenceLineResults)
+    assert ils.dataset.attrs["influence_type"] == "line"
+    assert ils.dataset.attrs["influence_name"] == "Lane IL"
+    assert np.allclose(ils.dataset.coords["load_position_x"].values, [2.0, 3.0, 4.0])
+
+    save_path = tmp_path / "lane_il.nc"
+    assert ils.save(save_path.as_posix()) == save_path.as_posix()
+    assert save_path.exists()
+
+    stem_path = tmp_path / "lane_il_export"
+    saved = ils.to_netcdf(stem_path.as_posix())
+    assert saved.endswith(".il.nc")
+    assert os.path.exists(saved)
+
+
+def test_analyze_influence_lines_combines_named_paths(bridge_model_42_negative):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    path_1 = og.Path(
+        start_point=og.Point(2, 0, 2),
+        end_point=og.Point(4, 0, 2),
+        increments=3,
+    )
+    path_2 = og.Path(
+        start_point=og.Point(2, 0, 4),
+        end_point=og.Point(4, 0, 4),
+        increments=3,
+    )
+
+    ils = example_bridge.analyze_influence_lines(
+        paths={"Lane 1": path_1, "Lane 2": path_2}
+    )
+
+    assert isinstance(ils, og.InfluenceLineResults)
+    assert "InfluenceLine" in ils.dataset.dims
+    assert list(ils.dataset.coords["InfluenceLine"].values) == ["Lane 1", "Lane 2"]
+
+    overlay = ils.get_line(array="displacements", component="y", node=25)
+    assert sorted(overlay) == ["Lane 1", "Lane 2"]
+    ax = ils.plot(array="displacements", component="y", node=25, show=False)
+    assert len(ax.lines) == 2
+    go = pytest.importorskip("plotly.graph_objects")
+    fig = ils.plot(
+        array="displacements",
+        component="y",
+        node=25,
+        backend="plotly",
+        view="path",
+        show=False,
+    )
+    assert isinstance(fig, go.Figure)
+    assert any(trace.type == "scatter3d" for trace in fig.data)
+
+
+def test_get_combined_influence_line_results(bridge_model_42_negative):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    example_bridge.analyze_influence_line(
+        name="Lane 1",
+        start_point=og.Point(2, 0, 2),
+        end_point=og.Point(4, 0, 2),
+        increments=3,
+    )
+    example_bridge.analyze_influence_line(
+        name="Lane 2",
+        start_point=og.Point(2, 0, 4),
+        end_point=og.Point(4, 0, 4),
+        increments=3,
+    )
+
+    combined = example_bridge.get_influence_results(names=["Lane 1", "Lane 2"])
+
+    assert combined.attrs["influence_type"] == "line"
+    assert combined.attrs["influence_overlay"] == "multi"
+    assert "InfluenceLine" in combined.dims
+    assert list(combined.coords["InfluenceLine"].values) == ["Lane 1", "Lane 2"]
+    assert "loadcase_label" in combined.coords
+    assert np.allclose(
+        combined.sel(InfluenceLine="Lane 1").coords["load_position_z"].values[:3],
+        [2.0, 2.0, 2.0],
+        equal_nan=False,
+    )
+
+
+def test_create_influence_line_from_combined_results(bridge_model_42_negative):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    example_bridge.analyze_influence_line(
+        name="Lane 1",
+        start_point=og.Point(2, 0, 2),
+        end_point=og.Point(4, 0, 2),
+        increments=3,
+    )
+    example_bridge.analyze_influence_line(
+        name="Lane 2",
+        start_point=og.Point(2, 0, 4),
+        end_point=og.Point(4, 0, 4),
+        increments=3,
+    )
+
+    combined = example_bridge.get_influence_results(names=["Lane 1", "Lane 2"])
+
+    with pytest.raises(ValueError, match="multiple InfluenceLine studies"):
+        og.create_influence_line(
+            ds=combined,
+            array="displacements",
+            component="y",
+            node=25,
+        ).get()
+
+    il_lane_1 = og.create_influence_line(
+        ds=combined,
+        array="displacements",
+        component="y",
+        node=25,
+        influence_line="Lane 1",
+    ).get()
+    il_lane_2 = og.create_influence_line(
+        ds=combined,
+        array="displacements",
+        component="y",
+        node=25,
+        influence_line="Lane 2",
+    ).get()
+
+    assert list(il_lane_1.coords["x"].values) == [2.0, 3.0, 4.0]
+    assert list(il_lane_2.coords["z"].values) == [4.0, 4.0, 4.0]
 
 
 def test_analyze_influence_line_preserves_hermite_shape_function(bridge_model_42_negative):
@@ -141,6 +561,199 @@ def test_analyze_influence_surface_separate_results(bridge_model_42_negative):
     assert influence_results.sizes["Loadcase"] == 4
     assert np.allclose(influence_results.coords["load_position_x"].values, [2.0, 2.0, 4.0, 4.0])
     assert np.allclose(influence_results.coords["load_position_z"].values, [2.0, 3.0, 2.0, 3.0])
+
+
+def test_analyze_influence_surfaces_returns_result_object(bridge_model_42_negative, tmp_path):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    iss = example_bridge.analyze_influence_surfaces(
+        name="Deck IS",
+        x=[2, 4],
+        z=[2, 3],
+    )
+
+    assert isinstance(iss, og.InfluenceSurfaceResults)
+    assert iss.dataset.attrs["influence_type"] == "surface"
+    assert iss.dataset.attrs["influence_name"] == "Deck IS"
+
+    isurface = iss.get_surface(array="forces", component="Mz_i", element=1)
+    assert isurface.dims == ("x", "z")
+    ax = iss.plot(array="forces", component="Mz_i", element=1, show=False)
+    assert len(ax.collections) > 0
+
+    save_path = tmp_path / "deck_is.nc"
+    assert iss.to_netcdf(save_path.as_posix()) == save_path.as_posix()
+    assert save_path.exists()
+
+    stem_path = tmp_path / "deck_is_export"
+    saved = iss.to_netcdf(stem_path.as_posix())
+    assert saved.endswith(".is.nc")
+    assert os.path.exists(saved)
+
+
+def test_analyze_influence_surfaces_defaults_to_mesh_station_grid(bridge_model_42_negative):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    iss = example_bridge.analyze_influence_surfaces(name="Deck IS Default")
+
+    longitudinal = iss.dataset.coords["load_position_longitudinal_station"].values
+    transverse = iss.dataset.coords["load_position_transverse_station"].values
+
+    assert np.all(np.isin(np.unique(longitudinal), np.asarray(example_bridge.Mesh_obj.nox)))
+    assert np.all(np.isin(np.unique(transverse), np.asarray(example_bridge.Mesh_obj.noz)))
+    assert len(longitudinal) == iss.dataset.sizes["Loadcase"]
+
+    station_surface = iss.get_surface(
+        array="forces",
+        component="Mz_i",
+        element=1,
+        x_coord="longitudinal_station",
+        y_coord="transverse_station",
+    )
+    assert station_surface.dims == ("longitudinal_station", "transverse_station")
+
+
+def test_influence_line_results_to_csv_combined_paths(bridge_model_42_negative, tmp_path):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    path_1 = og.Path(
+        start_point=og.Point(2, 0, 2),
+        end_point=og.Point(4, 0, 2),
+        increments=3,
+    )
+    path_2 = og.Path(
+        start_point=og.Point(2, 0, 4),
+        end_point=og.Point(4, 0, 4),
+        increments=3,
+    )
+    ils = example_bridge.analyze_influence_lines(paths={"Lane 1": path_1, "Lane 2": path_2})
+
+    csv_file = tmp_path / "lane_ils.csv"
+    assert (
+        ils.to_csv(
+            csv_file.as_posix(),
+            array="displacements",
+            component="y",
+            node=25,
+            load_coord="x",
+        )
+        == csv_file.as_posix()
+    )
+    assert csv_file.exists()
+
+    with open(csv_file, newline="") as fh:
+        rows = list(csv.DictReader(fh))
+
+    assert len(rows) == 6
+    assert {row["influence_line"] for row in rows} == {"Lane 1", "Lane 2"}
+    assert all("x" in row and "ordinate" in row for row in rows)
+
+    lane_1_x = sorted(
+        [float(row["x"]) for row in rows if row["influence_line"] == "Lane 1"]
+    )
+    assert lane_1_x == [2.0, 3.0, 4.0]
+
+
+def test_influence_surface_results_to_csv_grid_and_points(bridge_model_42_negative, tmp_path):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+    iss = example_bridge.analyze_influence_surfaces(name="Deck IS Default")
+
+    grid_file = tmp_path / "deck_is_grid.csv"
+    exported = iss.to_csv(
+        grid_file.as_posix(),
+        array="forces",
+        component="Mz_i",
+        element=1,
+        include_physical_coords=True,
+    )
+
+    assert isinstance(exported, dict)
+    assert exported["grid"] == grid_file.as_posix()
+    points_file = tmp_path / "deck_is_grid_points.csv"
+    assert exported["points"] == points_file.as_posix()
+    assert grid_file.exists()
+    assert points_file.exists()
+
+    with open(grid_file, newline="") as fh:
+        grid_rows = list(csv.reader(fh))
+    assert grid_rows[0][0] == "longitudinal_station"
+    assert len(grid_rows) > 1
+
+    with open(points_file, newline="") as fh:
+        point_rows = list(csv.reader(fh))
+    assert point_rows[0] == [
+        "longitudinal_station",
+        "transverse_station",
+        "x",
+        "z",
+        "ordinate",
+    ]
+    assert len(point_rows) > 1
+
+    long_file = tmp_path / "deck_is_long.csv"
+    assert (
+        iss.to_csv(
+            long_file.as_posix(),
+            array="forces",
+            component="Mz_i",
+            element=1,
+            layout="long",
+            include_physical_coords=True,
+        )
+        == long_file.as_posix()
+    )
+    with open(long_file, newline="") as fh:
+        long_rows = list(csv.reader(fh))
+    assert long_rows[0] == [
+        "longitudinal_station",
+        "transverse_station",
+        "x",
+        "z",
+        "ordinate",
+    ]
+    assert len(long_rows) > 1
+
+
+def test_influence_surface_results_plot_defaults_station_space(
+    bridge_model_42_negative,
+    monkeypatch,
+):
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+    iss = example_bridge.analyze_influence_surfaces(name="Deck IS Default")
+
+    captured = {}
+
+    def _fake_plot(isurface, **kwargs):
+        captured["coordinate_space"] = kwargs.get("coordinate_space", None)
+        return kwargs.get("coordinate_space", None)
+
+    monkeypatch.setattr("ospgrillage.osp_grillage.plot_influence_surface", _fake_plot)
+
+    iss.plot(
+        array="forces",
+        component="Mz_i",
+        element=1,
+        x_coord="longitudinal_station",
+        y_coord="transverse_station",
+        show=False,
+    )
+    assert captured["coordinate_space"] == "station"
+
+    iss.plot(
+        array="forces",
+        component="Mz_i",
+        element=1,
+        x_coord="longitudinal_station",
+        y_coord="transverse_station",
+        coordinate_space="physical",
+        show=False,
+    )
+    assert captured["coordinate_space"] == "physical"
 
 
 def test_influence_line_midspan_moment_matches_l_over_4(ref_bridge_properties):

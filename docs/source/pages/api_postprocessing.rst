@@ -7,6 +7,11 @@ with `shape_function="hermite"`, that corresponds to the higher-order load
 distribution path: Hermite on quadrilateral regions and the DKT-style condensed
 distributor on three-node triangular regions.
 
+For influence surfaces, :func:`~ospgrillage.postprocessing.plot_is` supports
+``coordinate_space="station"`` and ``coordinate_space="physical"``. Physical
+space uses mapped deck coordinates and triangulated rendering so curved/skewed
+decks are plotted as contiguous surfaces (Matplotlib and Plotly backends).
+
 Factory functions
 -----------------
 
@@ -16,6 +21,8 @@ Factory functions
    ~ospgrillage.postprocessing.create_envelope
    ~ospgrillage.postprocessing.create_influence_line
    ~ospgrillage.postprocessing.create_influence_surface
+   ~ospgrillage.postprocessing.plot_il
+   ~ospgrillage.postprocessing.plot_is
    ~ospgrillage.postprocessing.plot_force
    ~ospgrillage.postprocessing.plot_bmd
    ~ospgrillage.postprocessing.plot_sfd

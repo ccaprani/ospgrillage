@@ -30,6 +30,8 @@ __all__ = [
     "model_proxy_from_results",
     "create_influence_line",
     "create_influence_surface",
+    "plot_il",
+    "plot_is",
     "plot_force",
     "plot_bmd",
     "plot_sfd",
@@ -60,6 +62,11 @@ class _ModelProxy:
 
         # Build node_spec dict: {tag: {"coordinate": [x, y, z]}}
         coords_da = ds["node_coordinates"]
+        # Combined influence datasets may carry an extra leading study dimension.
+        # Geometry is identical across studies, so take the first slice.
+        for dim in list(coords_da.dims):
+            if dim not in {"Node", "Axis"}:
+                coords_da = coords_da.isel({dim: 0})
         self._node_spec = {}
         for tag in coords_da.coords["Node"].values:
             self._node_spec[int(tag)] = {
@@ -228,7 +235,8 @@ def create_influence_line(**kwargs):
         ``"forces_beam"``, or ``"forces_shell"``.
     :type array: str, optional
     :param load_coord: Load-position coordinate to use as the influence-line axis.
-        One of ``"x"``, ``"y"``, or ``"z"``. Defaults to ``"x"``.
+        One of ``"x"``, ``"y"``, ``"z"``, or cumulative path ``"station"``.
+        Defaults to ``"x"``.
     :type load_coord: str, optional
     :param loadcase: Optional load case name or list of names to include.
     :type loadcase: str or list[str], optional
@@ -261,10 +269,12 @@ def create_influence_surface(**kwargs):
         ``"forces_beam"``, or ``"forces_shell"``.
     :type array: str, optional
     :param x_coord: Load-position coordinate to use on the first surface axis.
-        Defaults to ``"x"``.
+        Defaults to ``"x"``. Station-based datasets may also use
+        ``"longitudinal_station"`` or ``"transverse_station"``.
     :type x_coord: str, optional
     :param y_coord: Load-position coordinate to use on the second surface axis.
-        Defaults to ``"z"``.
+        Defaults to ``"z"``. Station-based datasets may also use
+        ``"longitudinal_station"`` or ``"transverse_station"``.
     :type y_coord: str, optional
     :param loadcase: Optional load case name or list of names to include.
     :type loadcase: str or list[str], optional
@@ -347,6 +357,17 @@ def _get_position_index(da, values=None):
         },
         name="load_position",
     )
+
+
+def _cumulative_path_station(position_index):
+    """Return cumulative path distance for each load position."""
+    coords = np.asarray(position_index.values, dtype=float)
+    if len(coords) == 0:
+        return np.asarray([], dtype=float)
+    if len(coords) == 1:
+        return np.asarray([0.0], dtype=float)
+    deltas = np.diff(coords, axis=0)
+    return np.concatenate([[0.0], np.cumsum(np.linalg.norm(deltas, axis=1))])
 
 
 class Envelope:
@@ -461,6 +482,8 @@ class _BaseInfluence:
         self.element = kwargs.get("element", None)
         self.loadcase = kwargs.get("loadcase", None)
         self.values = kwargs.get("values", None)
+        self.influence_line = kwargs.get("influence_line", None)
+        self.influence_surface = kwargs.get("influence_surface", None)
 
         if ds is None:
             raise ValueError("Missing ds=: an xarray Dataset is required")
@@ -476,6 +499,20 @@ class _BaseInfluence:
             element=self.element,
             loadcase=self.loadcase,
         )
+        if "InfluenceLine" in da.dims:
+            if self.influence_line is None:
+                raise ValueError(
+                    "Dataset contains multiple InfluenceLine studies; specify "
+                    "influence_line= or extract each line explicitly."
+                )
+            da = da.sel(InfluenceLine=self.influence_line)
+        if "InfluenceSurface" in da.dims:
+            if self.influence_surface is None:
+                raise ValueError(
+                    "Dataset contains multiple InfluenceSurface studies; specify "
+                    "influence_surface= explicitly."
+                )
+            da = da.sel(InfluenceSurface=self.influence_surface)
         if "Loadcase" not in da.dims:
             raise ValueError(
                 "Selected response does not have a Loadcase dimension. Influence queries "
@@ -495,15 +532,17 @@ class InfluenceLine(_BaseInfluence):
     def __init__(self, ds, component: str = None, **kwargs):
         super().__init__(ds=ds, component=component, **kwargs)
         self.load_coord = kwargs.get("load_coord", "x")
-        if self.load_coord not in {"x", "y", "z"}:
-            raise ValueError("load_coord must be one of 'x', 'y', or 'z'")
+        if self.load_coord not in {"x", "y", "z", "station"}:
+            raise ValueError("load_coord must be one of 'x', 'y', 'z', or 'station'")
 
     def get(self):
         da, position_index = self._get_base_response()
+        station = _cumulative_path_station(position_index)
         da = da.assign_coords(
             x=("Loadcase", position_index.sel(position_component="x").values),
             y=("Loadcase", position_index.sel(position_component="y").values),
             z=("Loadcase", position_index.sel(position_component="z").values),
+            station=("Loadcase", station),
         )
         da = da.swap_dims({"Loadcase": self.load_coord}).sortby(self.load_coord)
         return da.drop_vars("Loadcase", errors="ignore")
@@ -521,9 +560,12 @@ class InfluenceSurface(_BaseInfluence):
         super().__init__(ds=ds, component=component, **kwargs)
         self.x_coord = kwargs.get("x_coord", "x")
         self.y_coord = kwargs.get("y_coord", "z")
-        valid_coords = {"x", "y", "z"}
+        valid_coords = {"x", "y", "z", "longitudinal_station", "transverse_station"}
         if self.x_coord not in valid_coords or self.y_coord not in valid_coords:
-            raise ValueError("x_coord and y_coord must each be one of 'x', 'y', or 'z'")
+            raise ValueError(
+                "x_coord and y_coord must each be one of 'x', 'y', 'z', "
+                "'longitudinal_station', or 'transverse_station'"
+            )
         if self.x_coord == self.y_coord:
             raise ValueError("x_coord and y_coord must be different coordinates")
 
@@ -534,10 +576,519 @@ class InfluenceSurface(_BaseInfluence):
             y=("Loadcase", position_index.sel(position_component="y").values),
             z=("Loadcase", position_index.sel(position_component="z").values),
         )
+        if "load_position_longitudinal_station" in da.coords:
+            da = da.assign_coords(
+                longitudinal_station=(
+                    "Loadcase",
+                    da.coords["load_position_longitudinal_station"].values,
+                )
+            )
+        if "load_position_transverse_station" in da.coords:
+            da = da.assign_coords(
+                transverse_station=(
+                    "Loadcase",
+                    da.coords["load_position_transverse_station"].values,
+                )
+            )
         if da.indexes.get("Loadcase", None) is not None and not da.indexes["Loadcase"].is_unique:
             raise ValueError("Loadcase coordinates must be unique before building an influence surface")
         da = da.set_index(Loadcase=[self.x_coord, self.y_coord]).unstack("Loadcase")
         return da.sortby(self.x_coord).sortby(self.y_coord)
+
+
+def _normalise_influence_line_input(il):
+    """Return ``[(label, data_array), ...]`` for one or more influence lines."""
+    if isinstance(il, xr.DataArray):
+        label = il.name or "Influence Line"
+        return [(label, il)]
+    if isinstance(il, dict):
+        return [(str(label), da) for label, da in il.items()]
+    if isinstance(il, (list, tuple)):
+        lines = []
+        for idx, da in enumerate(il, start=1):
+            label = getattr(da, "name", None) or f"Influence Line {idx}"
+            lines.append((label, da))
+        return lines
+    raise TypeError("plot_il expects a DataArray, list/tuple of DataArrays, or dict of labelled DataArrays")
+
+
+def _plot_il_path_plotly(lines, **kwargs):
+    """Plot one or more influence lines along their load paths on the bridge model."""
+    go = _import_plotly()
+    dataset = kwargs.get("dataset", None)
+    if dataset is None:
+        raise ValueError("plot_il(view='path') requires dataset= with model geometry metadata")
+
+    proxy = model_proxy_from_results(dataset)
+    fig = kwargs.get("ax", None)
+    if fig is None:
+        fig = plot_model(
+            proxy,
+            backend="plotly",
+            show=False,
+            title=kwargs.get("title", None),
+            show_nodes=kwargs.get("show_nodes", False),
+            show_supports=kwargs.get("show_supports", True),
+            show_rigid_links=kwargs.get("show_rigid_links", True),
+        )
+
+    scale = kwargs.get("scale", 1.0)
+    marker = kwargs.get("marker", None)
+    color = kwargs.get("color", None)
+
+    for idx, (label, da) in enumerate(lines):
+        x_vals = np.asarray(da.coords["x"].values, dtype=float)
+        z_vals = np.asarray(da.coords["z"].values, dtype=float)
+        ord_vals = np.asarray(da.values, dtype=float) * scale
+
+        line_dict = None
+        if color is not None and not isinstance(color, (list, tuple)):
+            line_dict = dict(color=color, width=6)
+        elif isinstance(color, (list, tuple)):
+            line_dict = dict(color=color[idx], width=6)
+        else:
+            line_dict = dict(width=6)
+        marker_dict = dict(symbol=marker, size=4) if marker else dict(size=4)
+
+        fig.add_trace(
+            go.Scatter3d(
+                x=x_vals,
+                y=z_vals,
+                z=ord_vals,
+                mode="lines+markers",
+                line=line_dict,
+                marker=marker_dict,
+                name=label,
+            )
+        )
+        fig.add_trace(
+            go.Scatter3d(
+                x=x_vals,
+                y=z_vals,
+                z=np.zeros_like(ord_vals),
+                mode="lines",
+                line=dict(
+                    color=line_dict.get("color", "black"),
+                    width=1,
+                    dash="dot",
+                ),
+                name=f"{label} baseline",
+                showlegend=False,
+            )
+        )
+
+    fig.update_layout(
+        scene=dict(
+            xaxis_title="x (m)",
+            yaxis_title="z (m)",
+            zaxis_title=kwargs.get("ylabel", "ordinate"),
+            aspectmode="data",
+        )
+    )
+    return fig
+
+
+def plot_il(il, **kwargs):
+    """Plot a 1D influence line DataArray.
+
+    Parameters
+    ----------
+    il : xarray.DataArray
+        Influence line with exactly one dimension.
+    backend : {"matplotlib", "plotly"}, default "matplotlib"
+        Rendering backend.
+    show : bool, default True
+        Whether to display the figure immediately.
+    ax : matplotlib.axes.Axes or plotly.graph_objects.Figure, optional
+        Existing target to draw into.
+    title, xlabel, ylabel, color, marker : optional
+        Standard plotting customisation keywords.
+    """
+    backend = kwargs.get("backend", "matplotlib")
+    show = kwargs.get("show", True)
+    title = kwargs.get("title", None)
+    xlabel = kwargs.get("xlabel", None)
+    ylabel = kwargs.get("ylabel", "ordinate")
+    color = kwargs.get("color", None)
+    marker = kwargs.get("marker", None)
+    view = kwargs.get("view", "ordinate")
+    lines = _normalise_influence_line_input(il)
+    for _, da in lines:
+        if len(da.dims) != 1:
+            raise ValueError("plot_il requires 1D DataArray inputs")
+
+    x_name = lines[0][1].dims[0]
+    if xlabel is None:
+        xlabel = x_name
+
+    if view == "path":
+        if backend != "plotly":
+            raise ValueError("plot_il(view='path') currently requires backend='plotly'")
+        fig = _plot_il_path_plotly(lines, **kwargs)
+        if title is not None:
+            fig.update_layout(title=title)
+        if show:
+            fig.show()
+        return fig
+
+    if backend == "matplotlib":
+        ax = kwargs.get("ax", None)
+        if ax is None:
+            figsize = kwargs.get("figsize", None)
+            _, ax = plt.subplots(figsize=figsize)
+        for idx, (label, da) in enumerate(lines):
+            line_kwargs = {}
+            if color is not None and not isinstance(color, (list, tuple)):
+                line_kwargs["color"] = color
+            elif isinstance(color, (list, tuple)):
+                line_kwargs["color"] = color[idx]
+            if marker is not None:
+                line_kwargs["marker"] = marker
+            ax.plot(
+                da.coords[da.dims[0]].values,
+                da.values,
+                label=label,
+                **line_kwargs,
+            )
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
+        if len(lines) > 1:
+            ax.legend()
+        if show:
+            plt.show()
+        return ax
+
+    if backend == "plotly":
+        import plotly.graph_objects as go
+
+        fig = kwargs.get("ax", None)
+        if fig is None:
+            fig = go.Figure()
+        for idx, (label, da) in enumerate(lines):
+            line_dict = None
+            if color is not None and not isinstance(color, (list, tuple)):
+                line_dict = dict(color=color)
+            elif isinstance(color, (list, tuple)):
+                line_dict = dict(color=color[idx])
+            marker_dict = dict(symbol=marker) if marker else None
+            fig.add_trace(
+                go.Scatter(
+                    x=da.coords[da.dims[0]].values,
+                    y=da.values,
+                    mode="lines+markers" if marker else "lines",
+                    line=line_dict,
+                    marker=marker_dict,
+                    name=label,
+                )
+            )
+        fig.update_layout(
+            title=title,
+            xaxis_title=xlabel,
+            yaxis_title=ylabel,
+        )
+        if show:
+            fig.show()
+        return fig
+
+    raise ValueError("Unknown backend: choose 'matplotlib' or 'plotly'")
+
+
+def _grid_triangles_from_mask(valid_mask):
+    """Build triangle connectivity from a structured grid validity mask."""
+    if valid_mask.ndim != 2:
+        raise ValueError("valid_mask must be a 2D array")
+
+    rows, cols = valid_mask.shape
+    compact_index = -np.ones_like(valid_mask, dtype=int)
+    compact_index[valid_mask] = np.arange(np.count_nonzero(valid_mask))
+
+    triangles = []
+    for row in range(rows - 1):
+        for col in range(cols - 1):
+            v00 = (row, col)
+            v01 = (row, col + 1)
+            v11 = (row + 1, col + 1)
+            v10 = (row + 1, col)
+
+            if valid_mask[v00] and valid_mask[v01] and valid_mask[v11]:
+                triangles.append(
+                    [
+                        compact_index[v00],
+                        compact_index[v01],
+                        compact_index[v11],
+                    ]
+                )
+            if valid_mask[v00] and valid_mask[v11] and valid_mask[v10]:
+                triangles.append(
+                    [
+                        compact_index[v00],
+                        compact_index[v11],
+                        compact_index[v10],
+                    ]
+                )
+
+    if triangles:
+        return np.asarray(triangles, dtype=int)
+    return np.empty((0, 3), dtype=int)
+
+
+def _prepare_influence_surface_plot_data(isurface, coordinate_space):
+    """Prepare coordinate arrays and optional triangulation metadata for ``plot_is``."""
+    x_name, y_name = isurface.dims
+    ordinate = np.asarray(isurface.values.T, dtype=float)
+
+    use_physical_coords = (
+        coordinate_space in {"auto", "physical"}
+        and "x" in isurface.coords
+        and "z" in isurface.coords
+        and isurface.coords["x"].dims == isurface.dims
+        and isurface.coords["z"].dims == isurface.dims
+    )
+    if coordinate_space == "station":
+        use_physical_coords = False
+
+    if use_physical_coords:
+        x_grid = np.asarray(isurface.coords["x"].values.T, dtype=float)
+        y_grid = np.asarray(isurface.coords["z"].values.T, dtype=float)
+        xlabel = "x"
+        ylabel = "z"
+    else:
+        x_axis = np.asarray(isurface.coords[x_name].values, dtype=float)
+        y_axis = np.asarray(isurface.coords[y_name].values, dtype=float)
+        x_grid, y_grid = np.meshgrid(x_axis, y_axis)
+        xlabel = x_name
+        ylabel = y_name
+
+    valid_mask = (
+        np.isfinite(x_grid)
+        & np.isfinite(y_grid)
+        & np.isfinite(ordinate)
+    )
+    use_triangulation = bool(use_physical_coords or np.any(~valid_mask))
+
+    tri_data = None
+    if use_triangulation:
+        triangles = _grid_triangles_from_mask(valid_mask)
+        x_points = x_grid[valid_mask]
+        y_points = y_grid[valid_mask]
+        ordinates = ordinate[valid_mask]
+
+        if len(x_points) < 3 or len(triangles) == 0:
+            raise ValueError(
+                "Influence surface plotting requires at least three connected "
+                "valid points when using physical coordinates"
+            )
+        tri_data = {
+            "x": x_points,
+            "y": y_points,
+            "z": ordinates,
+            "triangles": triangles,
+        }
+
+    return {
+        "x_name": x_name,
+        "y_name": y_name,
+        "ordinate": ordinate,
+        "x_grid": x_grid,
+        "y_grid": y_grid,
+        "xlabel": xlabel,
+        "ylabel": ylabel,
+        "use_triangulation": use_triangulation,
+        "tri_data": tri_data,
+    }
+
+
+def plot_is(isurface, **kwargs):
+    """Plot a 2D influence surface DataArray.
+
+    Parameters
+    ----------
+    isurface : xarray.DataArray
+        Influence surface with exactly two dimensions.
+    backend : {"matplotlib", "plotly"}, default "matplotlib"
+        Rendering backend.
+    show : bool, default True
+        Whether to display the figure immediately.
+    ax : matplotlib.axes.Axes or plotly.graph_objects.Figure, optional
+        Existing target to draw into.
+    title, xlabel, ylabel, colorscale : optional
+        Standard plotting customisation keywords.
+    """
+    if len(isurface.dims) != 2:
+        raise ValueError("plot_is requires a 2D DataArray")
+
+    backend = kwargs.get("backend", "matplotlib")
+    show = kwargs.get("show", True)
+    title = kwargs.get("title", None)
+    colorscale = kwargs.get("colorscale", "RdBu_r")
+    view = kwargs.get("view", "contour")
+    coordinate_space = kwargs.get("coordinate_space", "auto")
+
+    plot_data = _prepare_influence_surface_plot_data(isurface, coordinate_space)
+    z = plot_data["ordinate"]
+    x_grid = plot_data["x_grid"]
+    y_grid = plot_data["y_grid"]
+    use_triangulation = plot_data["use_triangulation"]
+    tri_data = plot_data["tri_data"]
+    xlabel = kwargs.get("xlabel", plot_data["xlabel"])
+    ylabel = kwargs.get("ylabel", plot_data["ylabel"])
+
+    if backend == "matplotlib":
+        ax = kwargs.get("ax", None)
+        if ax is None:
+            figsize = kwargs.get("figsize", None)
+            if view == "surface3d":
+                fig = plt.figure(figsize=figsize)
+                ax = fig.add_subplot(111, projection="3d")
+            else:
+                _, ax = plt.subplots(figsize=figsize)
+        if view == "surface3d":
+            if use_triangulation:
+                surface = ax.plot_trisurf(
+                    tri_data["x"],
+                    tri_data["y"],
+                    tri_data["z"],
+                    triangles=tri_data["triangles"],
+                    cmap=colorscale,
+                )
+            else:
+                surface = ax.plot_surface(x_grid, y_grid, z, cmap=colorscale)
+            ax.set_zlabel("ordinate")
+            plt.colorbar(surface, ax=ax, label="ordinate")
+        else:
+            if use_triangulation:
+                import matplotlib.tri as mtri
+
+                tri = mtri.Triangulation(
+                    tri_data["x"],
+                    tri_data["y"],
+                    tri_data["triangles"],
+                )
+                contour = ax.tripcolor(
+                    tri,
+                    tri_data["z"],
+                    cmap=colorscale,
+                    shading="gouraud",
+                )
+            else:
+                contour = ax.contourf(x_grid, y_grid, z, cmap=colorscale)
+            plt.colorbar(contour, ax=ax, label="ordinate")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
+        if show:
+            plt.show()
+        return ax
+
+    if backend == "plotly":
+        import plotly.graph_objects as go
+
+        fig = kwargs.get("ax", None)
+        if fig is None:
+            fig = go.Figure()
+        if view == "surface3d":
+            if use_triangulation:
+                fig.add_trace(
+                    go.Mesh3d(
+                        x=tri_data["x"],
+                        y=tri_data["y"],
+                        z=tri_data["z"],
+                        i=tri_data["triangles"][:, 0],
+                        j=tri_data["triangles"][:, 1],
+                        k=tri_data["triangles"][:, 2],
+                        intensity=tri_data["z"],
+                        colorscale=colorscale,
+                        colorbar=dict(title="ordinate"),
+                        showscale=True,
+                        name="Influence Surface",
+                        hovertemplate=(
+                            f"{xlabel}: %{{x:.3f}}<br>"
+                            f"{ylabel}: %{{y:.3f}}<br>"
+                            "ordinate: %{intensity:.3g}<extra></extra>"
+                        ),
+                    )
+                )
+            else:
+                fig.add_trace(
+                    go.Surface(
+                        x=x_grid,
+                        y=y_grid,
+                        z=z,
+                        colorscale=colorscale,
+                        colorbar=dict(title="ordinate"),
+                    )
+                )
+            fig.update_layout(
+                title=title,
+                scene=dict(
+                    xaxis_title=xlabel,
+                    yaxis_title=ylabel,
+                    zaxis_title="ordinate",
+                ),
+            )
+        else:
+            if use_triangulation:
+                fig.add_trace(
+                    go.Mesh3d(
+                        x=tri_data["x"],
+                        y=tri_data["y"],
+                        z=np.zeros_like(tri_data["z"]),
+                        i=tri_data["triangles"][:, 0],
+                        j=tri_data["triangles"][:, 1],
+                        k=tri_data["triangles"][:, 2],
+                        intensity=tri_data["z"],
+                        colorscale=colorscale,
+                        colorbar=dict(title="ordinate"),
+                        showscale=True,
+                        name="Influence Surface",
+                        hovertemplate=(
+                            f"{xlabel}: %{{x:.3f}}<br>"
+                            f"{ylabel}: %{{y:.3f}}<br>"
+                            "ordinate: %{intensity:.3g}<extra></extra>"
+                        ),
+                    )
+                )
+                fig.update_layout(
+                    title=title,
+                    scene=dict(
+                        xaxis_title=xlabel,
+                        yaxis_title=ylabel,
+                        zaxis=dict(
+                            title="",
+                            showticklabels=False,
+                            visible=False,
+                        ),
+                        aspectmode="data",
+                        camera=dict(
+                            projection=dict(type="orthographic"),
+                            eye=dict(x=0.0, y=0.0, z=2.2),
+                            up=dict(x=0, y=1, z=0),
+                        ),
+                    ),
+                )
+            else:
+                fig.add_trace(
+                    go.Heatmap(
+                        x=x_grid[0, :],
+                        y=y_grid[:, 0],
+                        z=z,
+                        colorscale=colorscale,
+                        colorbar=dict(title="ordinate"),
+                    )
+                )
+                fig.update_layout(
+                    title=title,
+                    xaxis_title=xlabel,
+                    yaxis_title=ylabel,
+                )
+        if show:
+            fig.show()
+        return fig
+
+    raise ValueError("Unknown backend: choose 'matplotlib' or 'plotly'")
 
 
 # ---------------------------------------------------------------------------
@@ -2555,9 +3106,11 @@ def _extract_support_data(grillage_obj):
         ``fixity_type`` (``"pin"`` / ``"roller"`` / ``"fixed"`` /
         ``"other"``).
     """
+    if not hasattr(grillage_obj, "Mesh_obj"):
+        return []
     mesh = grillage_obj.Mesh_obj
     node_spec = mesh.node_spec
-    support_type_dict = grillage_obj.edge_support_type_dict
+    support_type_dict = getattr(grillage_obj, "edge_support_type_dict", {})
 
     # Determine which attribute stores the node → edge-group mapping.
     edge_recorder = getattr(mesh, "edge_node_recorder", {})
@@ -2631,72 +3184,93 @@ def _extract_mesh_data(grillage_obj):
         ``[(c1, c2, c3, c4), ...]`` where each ``ci`` is ``[x, y, z]``.
         Non-empty only for shell-type meshes.
     """
-    mesh = grillage_obj.Mesh_obj
-    node_spec = mesh.node_spec
-    z_group_map = grillage_obj.common_grillage_element_z_group
-
     data = {}  # member_name -> list of (coord_i, coord_j, ele_tag)
     all_nodes = {}  # node_tag -> [x, y, z]
+    if hasattr(grillage_obj, "Mesh_obj"):
+        mesh = grillage_obj.Mesh_obj
+        node_spec = mesh.node_spec
+        z_group_map = grillage_obj.common_grillage_element_z_group
 
-    def _add_elements(member_name, ele_list):
-        entries = data.setdefault(member_name, [])
-        for ele in ele_list:
-            tag, ni, nj = ele[0], ele[1], ele[2]
-            ci = node_spec[ni]["coordinate"]
-            cj = node_spec[nj]["coordinate"]
-            entries.append((ci, cj, tag))
-            all_nodes[ni] = ci
-            all_nodes[nj] = cj
+        def _add_elements(member_name, ele_list):
+            entries = data.setdefault(member_name, [])
+            for ele in ele_list:
+                tag, ni, nj = ele[0], ele[1], ele[2]
+                ci = node_spec[ni]["coordinate"]
+                cj = node_spec[nj]["coordinate"]
+                entries.append((ci, cj, tag))
+                all_nodes[ni] = ci
+                all_nodes[nj] = cj
 
-    # Longitudinal members (edge_beam, exterior_main_beam_1, interior, exterior_2)
-    for member_name in [
-        "edge_beam",
-        "exterior_main_beam_1",
-        "interior_main_beam",
-        "exterior_main_beam_2",
-    ]:
-        if member_name not in z_group_map:
-            continue
-        for z_idx in z_group_map[member_name]:
-            if z_idx in mesh.z_group_to_ele:
-                _add_elements(member_name, mesh.z_group_to_ele[z_idx])
+        for member_name in [
+            "edge_beam",
+            "exterior_main_beam_1",
+            "interior_main_beam",
+            "exterior_main_beam_2",
+        ]:
+            if member_name not in z_group_map:
+                continue
+            for z_idx in z_group_map[member_name]:
+                if z_idx in mesh.z_group_to_ele:
+                    _add_elements(member_name, mesh.z_group_to_ele[z_idx])
 
-    # Start / end edges
-    for member_name in ["start_edge", "end_edge"]:
-        if member_name not in z_group_map:
-            continue
-        for edge_idx in z_group_map[member_name]:
-            if edge_idx in mesh.edge_group_to_ele:
-                _add_elements(member_name, mesh.edge_group_to_ele[edge_idx])
+        for member_name in ["start_edge", "end_edge"]:
+            if member_name not in z_group_map:
+                continue
+            for edge_idx in z_group_map[member_name]:
+                if edge_idx in mesh.edge_group_to_ele:
+                    _add_elements(member_name, mesh.edge_group_to_ele[edge_idx])
 
-    # Transverse slab
-    _add_elements("transverse_slab", mesh.trans_ele)
+        _add_elements("transverse_slab", mesh.trans_ele)
 
-    # Shell quad elements and rigid links (only present for ShellLinkMesh)
-    quads = []
-    links = []  # list of (slab_coord, beam_coord) pairs
-    if hasattr(grillage_obj, "shell_element_command_list"):
-        grid = getattr(mesh, "grid_number_dict", {})
-        for node_list in grid.values():
-            # Each entry is [n1, n2, n3, n4] (may contain [] for degenerate grids)
-            valid = [n for n in node_list if isinstance(n, (int, float))]
-            if len(valid) >= 3:
-                coords = [node_spec[n]["coordinate"] for n in valid]
-                quads.append(tuple(coords))
-                for n in valid:
-                    all_nodes[n] = node_spec[n]["coordinate"]
+        quads = []
+        links = []
+        if hasattr(grillage_obj, "shell_element_command_list"):
+            grid = getattr(mesh, "grid_number_dict", {})
+            for node_list in grid.values():
+                valid = [n for n in node_list if isinstance(n, (int, float))]
+                if len(valid) >= 3:
+                    coords = [node_spec[n]["coordinate"] for n in valid]
+                    quads.append(tuple(coords))
+                    for n in valid:
+                        all_nodes[n] = node_spec[n]["coordinate"]
 
-        # Rigid links: link_dict maps offset beam node → [slab_node1, slab_node2]
-        link_dict = getattr(mesh, "link_dict", {})
-        for beam_node, slab_nodes in link_dict.items():
-            bc = node_spec[beam_node]["coordinate"]
-            all_nodes[beam_node] = bc
-            for sn in slab_nodes:
-                sc = node_spec[sn]["coordinate"]
-                links.append((sc, bc))
-                all_nodes[sn] = sc
+            link_dict = getattr(mesh, "link_dict", {})
+            for beam_node, slab_nodes in link_dict.items():
+                bc = node_spec[beam_node]["coordinate"]
+                all_nodes[beam_node] = bc
+                for sn in slab_nodes:
+                    sc = node_spec[sn]["coordinate"]
+                    links.append((sc, bc))
+                    all_nodes[sn] = sc
 
-    return data, all_nodes, quads, links
+        return data, all_nodes, quads, links
+
+    if isinstance(grillage_obj, _ModelProxy):
+        node_spec = grillage_obj._node_spec
+        for member_name, info in grillage_obj._members.items():
+            entries = data.setdefault(member_name, [])
+            element_groups = info.get("elements", [])
+            node_groups = info.get("nodes", [])
+            for group_idx, nodes in enumerate(node_groups):
+                if nodes and isinstance(nodes[0], list):
+                    nodes = nodes[0]
+                if not nodes or len(nodes) < 2:
+                    continue
+                elements = (
+                    element_groups[group_idx] if group_idx < len(element_groups) else []
+                )
+                for seg_idx, (ni, nj) in enumerate(zip(nodes[:-1], nodes[1:])):
+                    ni = int(ni)
+                    nj = int(nj)
+                    ci = node_spec[ni]["coordinate"]
+                    cj = node_spec[nj]["coordinate"]
+                    tag = int(elements[seg_idx]) if seg_idx < len(elements) else seg_idx + 1
+                    entries.append((ci, cj, tag))
+                    all_nodes[ni] = ci
+                    all_nodes[nj] = cj
+        return data, all_nodes, [], []
+
+    raise TypeError("Unsupported grillage object for mesh extraction")
 
 
 def _plot_model_matplotlib(

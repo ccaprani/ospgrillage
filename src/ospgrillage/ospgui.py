@@ -59,6 +59,47 @@ except ModuleNotFoundError:
         pass  # type: ignore[assignment]
 
 
+def _classify_results_kind(ds) -> str:
+    """Classify a loaded results Dataset for GUI tab enablement.
+
+    Returns one of ``"ordinary"``, ``"influence_line"``, or
+    ``"influence_surface"``.
+    """
+    influence_type = str(ds.attrs.get("influence_type", "")).strip().lower()
+    if influence_type == "line":
+        return "influence_line"
+    if influence_type == "surface":
+        return "influence_surface"
+
+    # Combined influence exports encode study dimensions explicitly.
+    if "InfluenceLine" in ds.dims or "InfluenceLine" in ds.coords:
+        return "influence_line"
+    if "InfluenceSurface" in ds.dims or "InfluenceSurface" in ds.coords:
+        return "influence_surface"
+
+    coord_names = set(ds.coords)
+    if {
+        "load_position_longitudinal_station",
+        "load_position_transverse_station",
+    }.issubset(coord_names):
+        return "influence_surface"
+
+    # Legacy influence exports may only carry influence_name + load positions.
+    if "influence_name" in ds.attrs and {"load_position_x", "load_position_z"}.issubset(coord_names):
+        try:
+            x_vals = [float(v) for v in ds.coords["load_position_x"].values.tolist()]
+            z_vals = [float(v) for v in ds.coords["load_position_z"].values.tolist()]
+            ux = len(set(x_vals))
+            uz = len(set(z_vals))
+            if ux > 1 and uz > 1 and ux * uz <= len(x_vals):
+                return "influence_surface"
+        except Exception:
+            pass
+        return "influence_line"
+
+    return "ordinary"
+
+
 class BridgeInputWidget(QWidget):
     """Tabbed input form for bridge geometry, materials, sections, and members.
 
@@ -769,6 +810,44 @@ class ResultsControlWidget(QWidget):
         self.contour_group.setVisible(False)  # shown only for shell_beam
         layout.addWidget(self.contour_group)
 
+        # --- Influence controls ---
+        self.influence_group = QGroupBox("Influence Query")
+        influence_layout = QFormLayout()
+        self.influence_array_combo = QComboBox()
+        self.influence_component_combo = QComboBox()
+        self.influence_target_type_combo = QComboBox()
+        self.influence_target_id_combo = QComboBox()
+        self.influence_line_set_combo = QComboBox()
+        self.influence_line_view_combo = QComboBox()
+        for mode in ("ordinate", "path"):
+            self.influence_line_view_combo.addItem(mode)
+        self.influence_line_axis_combo = QComboBox()
+        for axis in ("station", "x", "y", "z"):
+            self.influence_line_axis_combo.addItem(axis)
+        self.influence_surface_x_combo = QComboBox()
+        self.influence_surface_y_combo = QComboBox()
+        for axis in ("x", "y", "z", "longitudinal_station", "transverse_station"):
+            self.influence_surface_x_combo.addItem(axis)
+            self.influence_surface_y_combo.addItem(axis)
+        self.influence_surface_y_combo.setCurrentText("z")
+        self.influence_surface_view_combo = QComboBox()
+        for mode in ("contour", "surface3d"):
+            self.influence_surface_view_combo.addItem(mode)
+
+        influence_layout.addRow("Array:", self.influence_array_combo)
+        influence_layout.addRow("Component:", self.influence_component_combo)
+        influence_layout.addRow("Target:", self.influence_target_type_combo)
+        influence_layout.addRow("Target ID:", self.influence_target_id_combo)
+        influence_layout.addRow("IL Study:", self.influence_line_set_combo)
+        influence_layout.addRow("IL View:", self.influence_line_view_combo)
+        influence_layout.addRow("IL Axis:", self.influence_line_axis_combo)
+        influence_layout.addRow("IS X Axis:", self.influence_surface_x_combo)
+        influence_layout.addRow("IS Y Axis:", self.influence_surface_y_combo)
+        influence_layout.addRow("IS View:", self.influence_surface_view_combo)
+        self.influence_group.setLayout(influence_layout)
+        self.influence_group.setVisible(False)
+        layout.addWidget(self.influence_group)
+
         # --- Back button ---
         self.btn_back = QPushButton("Back to Wizard")
         layout.addWidget(self.btn_back)
@@ -834,6 +913,115 @@ class ResultsControlWidget(QWidget):
         self.contour_group.setStyleSheet(
             "" if enabled else "QGroupBox { color: #999; }"
         )
+
+    def set_influence_mode(self, enabled):
+        """Show or hide influence-query controls."""
+        self.influence_group.setVisible(enabled)
+        self.loadcase_combo.setEnabled(not enabled)
+        for cb in self.member_checkboxes.values():
+            cb.setEnabled(not enabled)
+
+    def populate_influence_controls(self, ds):
+        """Populate array/component/target selectors for an influence Dataset."""
+        arrays = []
+        for name, da in ds.data_vars.items():
+            if "Loadcase" in da.dims and "Component" in da.dims:
+                if "Node" in da.dims or "Element" in da.dims:
+                    arrays.append(name)
+
+        self.influence_array_combo.blockSignals(True)
+        self.influence_array_combo.clear()
+        for name in arrays:
+            self.influence_array_combo.addItem(name)
+        self.influence_array_combo.blockSignals(False)
+
+        self.influence_line_set_combo.blockSignals(True)
+        self.influence_line_set_combo.clear()
+        if "InfluenceLine" in ds.coords:
+            self.influence_line_set_combo.addItem("All")
+            for name in ds.coords["InfluenceLine"].values:
+                self.influence_line_set_combo.addItem(str(name))
+            self.influence_line_set_combo.setEnabled(True)
+        else:
+            self.influence_line_set_combo.addItem("Current")
+            self.influence_line_set_combo.setEnabled(False)
+        self.influence_line_set_combo.blockSignals(False)
+
+        if arrays:
+            self._update_influence_component_and_target(ds, arrays[0])
+
+    def _update_influence_component_and_target(self, ds, array_name):
+        """Refresh component and target-id selectors from the selected array."""
+        da = ds[array_name]
+
+        self.influence_component_combo.blockSignals(True)
+        self.influence_component_combo.clear()
+        for comp in da.coords["Component"].values:
+            self.influence_component_combo.addItem(str(comp))
+        self.influence_component_combo.blockSignals(False)
+
+        target_types = []
+        if "Node" in da.dims:
+            target_types.append("Node")
+        if "Element" in da.dims:
+            target_types.append("Element")
+
+        self.influence_target_type_combo.blockSignals(True)
+        self.influence_target_type_combo.clear()
+        for target_type in target_types:
+            self.influence_target_type_combo.addItem(target_type)
+        self.influence_target_type_combo.blockSignals(False)
+
+        self._update_influence_target_ids(ds, array_name)
+
+    def _update_influence_target_ids(self, ds, array_name):
+        """Refresh target IDs when the target type changes."""
+        da = ds[array_name]
+        target_type = self.influence_target_type_combo.currentText()
+        coord_name = "Node" if target_type == "Node" else "Element"
+        target_ids = da.coords[coord_name].values if coord_name in da.coords else []
+
+        self.influence_target_id_combo.blockSignals(True)
+        self.influence_target_id_combo.clear()
+        for target_id in target_ids:
+            self.influence_target_id_combo.addItem(str(int(target_id)))
+        self.influence_target_id_combo.blockSignals(False)
+
+    def selected_influence_array(self):
+        return self.influence_array_combo.currentText() or None
+
+    def selected_influence_component(self):
+        return self.influence_component_combo.currentText() or None
+
+    def selected_influence_target(self):
+        target_type = self.influence_target_type_combo.currentText()
+        target_id = self.influence_target_id_combo.currentText()
+        if not target_type or not target_id:
+            return None, None
+        return target_type, int(target_id)
+
+    def selected_influence_line_axis(self):
+        return self.influence_line_axis_combo.currentText() or "x"
+
+    def selected_influence_line_study(self):
+        text = self.influence_line_set_combo.currentText()
+        if not text or text == "Current":
+            return None
+        if text == "All":
+            return "All"
+        return text
+
+    def selected_influence_line_view(self):
+        return self.influence_line_view_combo.currentText() or "ordinate"
+
+    def selected_influence_surface_axes(self):
+        return (
+            self.influence_surface_x_combo.currentText() or "x",
+            self.influence_surface_y_combo.currentText() or "z",
+        )
+
+    def selected_influence_surface_view(self):
+        return self.influence_surface_view_combo.currentText() or "contour"
 
 
 class BridgeAnalysisGUI(QMainWindow):
@@ -976,6 +1164,7 @@ class BridgeAnalysisGUI(QMainWindow):
         self._mode = "wizard"       # "wizard" or "results"
         self._model_proxy = None    # _ModelProxy from loaded results
         self._results = None        # xarray Dataset
+        self._results_kind = "ordinary"  # ordinary, influence_line, influence_surface
         self._stale_tabs = set()    # result tab names needing re-render
 
         # Create UI components
@@ -1125,6 +1314,36 @@ class BridgeAnalysisGUI(QMainWindow):
         self.results_panel.contour_overlay_combo.currentIndexChanged.connect(
             self._on_results_control_changed
         )
+        self.results_panel.influence_array_combo.currentIndexChanged.connect(
+            self._on_influence_array_changed
+        )
+        self.results_panel.influence_component_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.influence_target_type_combo.currentIndexChanged.connect(
+            self._on_influence_target_type_changed
+        )
+        self.results_panel.influence_target_id_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.influence_line_set_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.influence_line_view_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.influence_line_axis_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.influence_surface_x_combo.currentIndexChanged.connect(
+            self._on_influence_surface_axis_changed
+        )
+        self.results_panel.influence_surface_y_combo.currentIndexChanged.connect(
+            self._on_influence_surface_axis_changed
+        )
+        self.results_panel.influence_surface_view_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
         self.results_panel.btn_back.clicked.connect(self._switch_to_wizard)
         self.left_stack.addWidget(self.results_panel)  # index 1
 
@@ -1167,7 +1386,15 @@ class BridgeAnalysisGUI(QMainWindow):
             "diagrams here.</p></body></html>"
         )
         self._result_tab_widgets = {}
-        for label in ("Deflection", "BMD", "SFD", "TMD", "Shell Contour"):
+        for label in (
+            "Deflection",
+            "BMD",
+            "SFD",
+            "TMD",
+            "Shell Contour",
+            "Influence Line",
+            "Influence Surface",
+        ):
             if _WEBENGINE_AVAILABLE:
                 tab = QWebEngineView()
                 tab.setHtml(_placeholder)
@@ -1648,35 +1875,63 @@ from math import *
 
         self._model_proxy = proxy
         self._results = ds
+        self._results_kind = _classify_results_kind(ds)
+        summary_name = os.path.basename(file_name)
+        loadcase_count = len(ds.coords["Loadcase"].values) if "Loadcase" in ds.coords else 0
+        summary_text = f"{len(ds.data_vars)} variables, {loadcase_count} load cases"
 
         # Populate controls
         loadcase_names = []
-        if "Loadcase" in ds.coords:
-            loadcase_names = [str(lc) for lc in ds.coords["Loadcase"].values]
+        if "Loadcase" in self._results.coords:
+            loadcase_names = [str(lc) for lc in self._results.coords["Loadcase"].values]
         self.results_panel.populate_loadcases(loadcase_names)
-        self.results_panel.update_available_members(proxy)
+        self.results_panel.update_available_members(self._model_proxy)
+        self.results_panel.set_influence_mode(self._results_kind != "ordinary")
+        if self._results_kind != "ordinary":
+            self.results_panel.populate_influence_controls(self._results)
 
-        n_vars = len(ds.data_vars)
-        n_lc = len(loadcase_names)
-        self.results_panel.set_file_info(
-            os.path.basename(file_name),
-            f"{n_vars} variables, {n_lc} load cases",
-        )
+        self.results_panel.set_file_info(summary_name, summary_text)
 
         # Shell contour visibility
-        is_shell = proxy.model_type == "shell_beam"
+        is_shell = self._model_proxy.model_type == "shell_beam"
         self.results_panel.set_shell_contour_visible(is_shell)
 
-        # Enable/disable the Shell Contour tab
+        # Enable/disable tabs based on dataset kind
         for i in range(self.results_tabs.count()):
-            if self.results_tabs.tabText(i) == "Shell Contour":
-                self.results_tabs.setTabEnabled(i, is_shell)
-                break
+            label = self.results_tabs.tabText(i)
+            if self._results_kind == "ordinary":
+                enabled = label in {"Deflection", "BMD", "SFD", "TMD"}
+                if label == "Shell Contour":
+                    enabled = is_shell
+            elif self._results_kind == "influence_line":
+                enabled = label == "Influence Line"
+            else:
+                enabled = label == "Influence Surface"
+            self.results_tabs.setTabEnabled(i, enabled)
 
-        # Mark all result tabs stale and switch mode
-        self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection"}
-        if is_shell:
-            self._stale_tabs.add("Shell Contour")
+        if self._results_kind == "ordinary":
+            for i in range(self.results_tabs.count()):
+                if self.results_tabs.tabText(i) == "Deflection":
+                    self.results_tabs.setCurrentIndex(i)
+                    break
+
+        # Mark all relevant tabs stale and switch mode
+        if self._results_kind == "ordinary":
+            self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection"}
+            if is_shell:
+                self._stale_tabs.add("Shell Contour")
+        elif self._results_kind == "influence_line":
+            self._stale_tabs = {"Influence Line"}
+            for i in range(self.results_tabs.count()):
+                if self.results_tabs.tabText(i) == "Influence Line":
+                    self.results_tabs.setCurrentIndex(i)
+                    break
+        else:
+            self._stale_tabs = {"Influence Surface"}
+            for i in range(self.results_tabs.count()):
+                if self.results_tabs.tabText(i) == "Influence Surface":
+                    self.results_tabs.setCurrentIndex(i)
+                    break
         self._switch_to_results()
 
         # Grey out contour controls unless Shell Contour tab is active
@@ -1690,7 +1945,12 @@ from math import *
     # ------------------------------------------------------------------
     def _on_results_control_changed(self, _=None):
         """Slot: loadcase or member filter changed — debounced refresh."""
-        self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection", "Shell Contour"}
+        if self._results_kind == "ordinary":
+            self._stale_tabs = {"BMD", "SFD", "TMD", "Deflection", "Shell Contour"}
+        elif self._results_kind == "influence_line":
+            self._stale_tabs = {"Influence Line"}
+        else:
+            self._stale_tabs = {"Influence Surface"}
         # Debounce: multiple checkbox changes in quick succession are
         # collapsed into a single render via a short single-shot timer.
         if not hasattr(self, "_debounce_timer"):
@@ -1707,6 +1967,44 @@ from math import *
         label = self.results_tabs.tabText(index)
         self.results_panel.set_shell_contour_enabled(label == "Shell Contour")
         self._refresh_current_result_tab()
+
+    def _on_influence_array_changed(self, _=None):
+        """Refresh target selectors when the influence response array changes."""
+        if self._results is None:
+            return
+        array_name = self.results_panel.selected_influence_array()
+        if array_name:
+            self.results_panel._update_influence_component_and_target(
+                self._results, array_name
+            )
+        self._on_results_control_changed()
+
+    def _on_influence_target_type_changed(self, _=None):
+        """Refresh influence target IDs when target type changes."""
+        if self._results is None:
+            return
+        array_name = self.results_panel.selected_influence_array()
+        if array_name:
+            self.results_panel._update_influence_target_ids(self._results, array_name)
+        self._on_results_control_changed()
+
+    def _on_influence_surface_axis_changed(self, _=None):
+        """Keep influence-surface axis selections distinct."""
+        x_coord, y_coord = self.results_panel.selected_influence_surface_axes()
+        if x_coord == y_coord:
+            combo = self.sender()
+            fallback = {"x", "y", "z"} - {x_coord}
+            preferred = "z" if x_coord != "z" else "x"
+            replacement = preferred if preferred in fallback else sorted(fallback)[0]
+            if combo is self.results_panel.influence_surface_x_combo:
+                self.results_panel.influence_surface_y_combo.blockSignals(True)
+                self.results_panel.influence_surface_y_combo.setCurrentText(replacement)
+                self.results_panel.influence_surface_y_combo.blockSignals(False)
+            else:
+                self.results_panel.influence_surface_x_combo.blockSignals(True)
+                self.results_panel.influence_surface_x_combo.setCurrentText(replacement)
+                self.results_panel.influence_surface_x_combo.blockSignals(False)
+        self._on_results_control_changed()
 
     def _refresh_current_result_tab(self):
         """Render only the currently visible result tab if it is stale."""
@@ -1730,7 +2028,79 @@ from math import *
             return
 
         try:
-            if label == "Shell Contour":
+            if label == "Influence Line":
+                array_name = self.results_panel.selected_influence_array()
+                component = self.results_panel.selected_influence_component()
+                target_type, target_id = self.results_panel.selected_influence_target()
+                il_kwargs = dict(
+                    array=array_name,
+                    component=component,
+                    load_coord=self.results_panel.selected_influence_line_axis(),
+                )
+                if target_type == "Node":
+                    il_kwargs["node"] = target_id
+                elif target_type == "Element":
+                    il_kwargs["element"] = target_id
+
+                selected_study = self.results_panel.selected_influence_line_study()
+                if "InfluenceLine" in self._results.dims and selected_study == "All":
+                    overlay_ils = {}
+                    for influence_line in self._results.coords["InfluenceLine"].values:
+                        overlay_ils[str(influence_line)] = og.create_influence_line(
+                            ds=self._results,
+                            influence_line=str(influence_line),
+                            **il_kwargs,
+                        ).get()
+                    plot_data = overlay_ils
+                    title = f"{component} influence lines"
+                elif "InfluenceLine" in self._results.dims:
+                    plot_data = og.create_influence_line(
+                        ds=self._results,
+                        influence_line=selected_study,
+                        **il_kwargs,
+                    ).get()
+                    title = f"{component} influence line"
+                else:
+                    plot_data = og.create_influence_line(
+                        ds=self._results,
+                        **il_kwargs,
+                    ).get()
+                    title = f"{component} influence line"
+
+                fig = og.plot_il(
+                    plot_data,
+                    backend="plotly",
+                    show=False,
+                    title=title,
+                    view=self.results_panel.selected_influence_line_view(),
+                    dataset=self._results,
+                )
+            elif label == "Influence Surface":
+                array_name = self.results_panel.selected_influence_array()
+                component = self.results_panel.selected_influence_component()
+                target_type, target_id = self.results_panel.selected_influence_target()
+                x_coord, y_coord = self.results_panel.selected_influence_surface_axes()
+                is_kwargs = {
+                    "ds": self._results,
+                    "array": array_name,
+                    "component": component,
+                    "x_coord": x_coord,
+                    "y_coord": y_coord,
+                }
+                if target_type == "Node":
+                    is_kwargs["node"] = target_id
+                elif target_type == "Element":
+                    is_kwargs["element"] = target_id
+                isurface = og.create_influence_surface(**is_kwargs).get()
+                fig = og.plot_is(
+                    isurface,
+                    backend="plotly",
+                    show=False,
+                    title=f"{component} influence surface",
+                    view=self.results_panel.selected_influence_surface_view(),
+                    coordinate_space="physical",
+                )
+            elif label == "Shell Contour":
                 # Shell contour — reads directly from Dataset
                 comp = self.results_panel.contour_component_combo.currentText()
                 cs = self.results_panel.contour_colorscale_combo.currentText()

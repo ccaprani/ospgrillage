@@ -23,6 +23,8 @@ __all__ = [
     "OspGrillageShell",
     "create_grillage",
     "InfluenceResultSet",
+    "InfluenceLineResults",
+    "InfluenceSurfaceResults",
     # Members & sections
     "GrillageMember",
     "Section",
@@ -68,6 +70,8 @@ __all__ = [
     "model_proxy_from_results",
     "create_influence_line",
     "create_influence_surface",
+    "plot_il",
+    "plot_is",
     "plot_force",
     "plot_bmd",
     "plot_sfd",
