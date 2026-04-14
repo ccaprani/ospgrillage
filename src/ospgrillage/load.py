@@ -1857,10 +1857,11 @@ class ShapeFunction:
         Compute a DKT-style concentrated-load shape-function vector for a 3-node triangle.
 
         The interpolation follows the discrete Kirchhoff triangle edge assumptions:
-        a quadratic six-node triangle is used for the transverse displacement field,
-        while the midside transverse displacements are condensed to the three corner
-        nodes by the cubic edge relation. The resulting nine coefficients map directly
-        to the grillage nodal load tuple ``(Fy, Mx, Mz)`` for each corner node.
+        the tangential edge rotations follow the cubic Hermite beam interpolation on
+        each triangle edge, and the three corner vertical coefficients are recovered
+        from rigid-body reproduction in the global ``(x, z)`` plane. The resulting
+        nine coefficients map directly to the grillage nodal load tuple
+        ``(Fy, Mx, Mz)`` for each corner node.
 
         Parameters
         ----------
@@ -1889,14 +1890,6 @@ class ShapeFunction:
             x=x, z=z, x1=x1, z1=z1, x2=x2, z2=z2, x3=x3, z3=z3
         )
 
-        # Six-node triangle quadratic shape functions used by the DKT formulation.
-        N1 = L1 * (2 * L1 - 1)
-        N2 = L2 * (2 * L2 - 1)
-        N3 = L3 * (2 * L3 - 1)
-        N4 = 4 * L2 * L3
-        N5 = 4 * L3 * L1
-        N6 = 4 * L1 * L2
-
         def _edge_data(xi, zi, xj, zj):
             dx = xj - xi
             dz = zj - zi
@@ -1908,30 +1901,27 @@ class ShapeFunction:
         l31, c31, s31 = _edge_data(x3, z3, x1, z1)
         l12, c12, s12 = _edge_data(x1, z1, x2, z2)
 
-        a23 = l23 / 8.0
-        a31 = l31 / 8.0
-        a12 = l12 / 8.0
-
-        # Corner-node transverse displacement coefficients after midside condensation.
-        Nv = [
-            N1 + 0.5 * N5 + 0.5 * N6,
-            N2 + 0.5 * N4 + 0.5 * N6,
-            N3 + 0.5 * N4 + 0.5 * N5,
-        ]
-
-        # DKT tangential rotations condensed to corner bending DOFs.
-        # In ospgrillage's x-z model plane:
-        # - the first in-plane rotation maps to nodal Mz
-        # - the second in-plane rotation maps to nodal Mx
+        # Cubic Hermite edge rotation terms written in barycentric form.
+        # These reduce exactly to the 1D beam-consistent edge coefficients when the
+        # evaluation point lies on a triangle edge.
         Nmz = [
-            a31 * c31 * N5 - a12 * c12 * N6,
-            -a23 * c23 * N4 + a12 * c12 * N6,
-            a23 * c23 * N4 - a31 * c31 * N5,
+            c12 * l12 * L1**2 * L2 - c31 * l31 * L3 * L1**2,
+            c23 * l23 * L2**2 * L3 - c12 * l12 * L1 * L2**2,
+            c31 * l31 * L3**2 * L1 - c23 * l23 * L2 * L3**2,
         ]
         Nmx = [
-            a31 * s31 * N5 - a12 * s12 * N6,
-            -a23 * s23 * N4 + a12 * s12 * N6,
-            a23 * s23 * N4 - a31 * s31 * N5,
+            s12 * l12 * L1**2 * L2 - s31 * l31 * L3 * L1**2,
+            s23 * l23 * L2**2 * L3 - s12 * l12 * L1 * L2**2,
+            s31 * l31 * L3**2 * L1 - s23 * l23 * L2 * L3**2,
         ]
+
+        # Recover the corner vertical coefficients from rigid-body reproduction:
+        # the interpolation must reproduce constant displacement and the linear
+        # fields w=x and w=z exactly.
+        coeff_matrix = np.array(
+            [[1.0, 1.0, 1.0], [x1, x2, x3], [z1, z2, z3]], dtype=float
+        )
+        rhs = np.array([1.0, x - sum(Nmz), z - sum(Nmx)], dtype=float)
+        Nv = np.linalg.solve(coeff_matrix, rhs).tolist()
 
         return Nv, Nmx, Nmz
