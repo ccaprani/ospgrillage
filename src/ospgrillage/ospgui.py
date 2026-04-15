@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,47 @@ def _classify_results_kind(ds) -> str:
         return "influence_line"
 
     return "ordinary"
+
+
+def _resolve_influence_surface_axes(ds, mode: str = "physical"):
+    """Resolve influence-surface reduction axes and display coordinate-space.
+
+    Reduction is performed on station coordinates when available because that
+    produces a contiguous 2D grid for skewed/curved decks. Display space can
+    still be physical x-z or station, depending on user mode.
+    """
+    mode_value = str(mode or "physical").strip().lower()
+    has_station_coords = {
+        "load_position_longitudinal_station",
+        "load_position_transverse_station",
+    }.issubset(set(ds.coords))
+
+    if has_station_coords:
+        if mode_value in {"station", "stations"}:
+            return "longitudinal_station", "transverse_station", "station"
+        return "longitudinal_station", "transverse_station", "physical"
+
+    # Fallback for legacy/non-station datasets.
+    return "x", "z", "physical"
+
+
+def _nonempty_components(da):
+    """Return Component labels that contain at least one finite/non-null value."""
+    if "Component" not in da.dims:
+        return []
+    mask = da.notnull()
+    reduce_dims = [dim for dim in da.dims if dim != "Component"]
+    if reduce_dims:
+        mask = mask.any(dim=reduce_dims)
+    valid = []
+    for comp in da.coords["Component"].values:
+        try:
+            has_data = bool(mask.sel(Component=comp).item())
+        except Exception:
+            has_data = False
+        if has_data:
+            valid.append(str(comp))
+    return valid
 
 
 class BridgeInputWidget(QWidget):
@@ -812,47 +854,67 @@ class ResultsControlWidget(QWidget):
 
         # --- Influence controls ---
         self.influence_group = QGroupBox("Influence Query")
-        influence_layout = QFormLayout()
+        influence_layout = QVBoxLayout()
+
+        self.influence_common_group = QGroupBox("Target Response")
+        influence_common_layout = QFormLayout()
         self.influence_array_combo = QComboBox()
         self.influence_component_combo = QComboBox()
-        self.influence_target_type_combo = QComboBox()
+        self._influence_target_type = None
         self.influence_target_id_combo = QComboBox()
+        influence_common_layout.addRow("Response:", self.influence_array_combo)
+        influence_common_layout.addRow("Component:", self.influence_component_combo)
+        self.influence_target_id_combo.setToolTip(
+            "Identifier of the selected response location."
+        )
+        self.influence_target_id_label = QLabel("Location ID")
+        influence_common_layout.addRow(self.influence_target_id_label, self.influence_target_id_combo)
+        self.influence_common_group.setLayout(influence_common_layout)
+        influence_layout.addWidget(self.influence_common_group)
+
+        self.influence_line_group = QGroupBox("Influence Line")
+        influence_line_layout = QFormLayout()
         self.influence_line_set_combo = QComboBox()
         self.influence_line_view_combo = QComboBox()
         for mode in ("ordinate", "path"):
             self.influence_line_view_combo.addItem(mode)
+        self.influence_line_view_combo.setCurrentText("path")
         self.influence_line_axis_combo = QComboBox()
         for axis in ("station", "x", "y", "z"):
             self.influence_line_axis_combo.addItem(axis)
         self.influence_line_axis_combo.setToolTip(
             "Influence-line abscissa. Use 'station' for cumulative path distance."
         )
-        self.influence_surface_x_combo = QComboBox()
-        self.influence_surface_y_combo = QComboBox()
-        for axis in ("x", "y", "z", "longitudinal_station", "transverse_station"):
-            self.influence_surface_x_combo.addItem(axis)
-            self.influence_surface_y_combo.addItem(axis)
-        self.influence_surface_y_combo.setCurrentText("z")
-        self.influence_surface_x_combo.setToolTip(
-            "Surface reduction axis (x side). Plots are rendered in physical x-z space."
+        influence_line_layout.addRow("IL Study:", self.influence_line_set_combo)
+        influence_line_layout.addRow("IL View:", self.influence_line_view_combo)
+        influence_line_layout.addRow("IL Abscissa:", self.influence_line_axis_combo)
+        self.influence_line_group.setLayout(influence_line_layout)
+        influence_layout.addWidget(self.influence_line_group)
+
+        self.influence_surface_group = QGroupBox("Influence Surface")
+        influence_surface_layout = QFormLayout()
+        self.influence_surface_mode_combo = QComboBox()
+        self.influence_surface_mode_combo.addItem("Physical (x-z)", "physical")
+        self.influence_surface_mode_combo.addItem(
+            "Stations (longitudinal-transverse)", "stations"
         )
-        self.influence_surface_y_combo.setToolTip(
-            "Surface reduction axis (y side). Plots are rendered in physical x-z space."
+        self.influence_surface_mode_combo.setToolTip(
+            "Single IS coordinate mode. Physical uses x-z; stations uses longitudinal-transverse station grid."
         )
         self.influence_surface_view_combo = QComboBox()
         for mode in ("contour", "surface3d"):
             self.influence_surface_view_combo.addItem(mode)
+        self.influence_surface_show_layer_check = QCheckBox("Show IS Layer")
+        self.influence_surface_show_layer_check.setChecked(True)
+        self.influence_surface_hover_check = QCheckBox("Enable IS Hover")
+        self.influence_surface_hover_check.setChecked(False)
 
-        influence_layout.addRow("Array:", self.influence_array_combo)
-        influence_layout.addRow("Component:", self.influence_component_combo)
-        influence_layout.addRow("Target:", self.influence_target_type_combo)
-        influence_layout.addRow("Target ID:", self.influence_target_id_combo)
-        influence_layout.addRow("IL Study:", self.influence_line_set_combo)
-        influence_layout.addRow("IL View:", self.influence_line_view_combo)
-        influence_layout.addRow("IL Axis:", self.influence_line_axis_combo)
-        influence_layout.addRow("IS X Axis:", self.influence_surface_x_combo)
-        influence_layout.addRow("IS Y Axis:", self.influence_surface_y_combo)
-        influence_layout.addRow("IS View:", self.influence_surface_view_combo)
+        influence_surface_layout.addRow("IS Coordinates:", self.influence_surface_mode_combo)
+        influence_surface_layout.addRow("IS View:", self.influence_surface_view_combo)
+        influence_surface_layout.addRow("", self.influence_surface_show_layer_check)
+        influence_surface_layout.addRow("", self.influence_surface_hover_check)
+        self.influence_surface_group.setLayout(influence_surface_layout)
+        influence_layout.addWidget(self.influence_surface_group)
         self.influence_group.setLayout(influence_layout)
         self.influence_group.setVisible(False)
         layout.addWidget(self.influence_group)
@@ -874,16 +936,53 @@ class ResultsControlWidget(QWidget):
 
     def update_available_members(self, proxy):
         """Enable/disable checkboxes based on which members have elements."""
+        def _norm_member_key(name):
+            text = str(name or "")
+            return "".join(ch for ch in text.lower() if ch.isalnum())
+
+        def _has_elements(info):
+            if isinstance(info, dict):
+                values = info.get("elements", None)
+                if values is None:
+                    values = info.get("element", None)
+            else:
+                values = info
+            if values is None:
+                return False
+            if isinstance(values, np.ndarray):
+                return values.size > 0
+            if isinstance(values, (list, tuple, set)):
+                if len(values) == 0:
+                    return False
+                for item in values:
+                    if isinstance(item, np.ndarray):
+                        if item.size > 0:
+                            return True
+                    elif isinstance(item, (list, tuple, set)):
+                        if len(item) > 0:
+                            return True
+                    elif item is not None:
+                        return True
+                return False
+            return bool(values)
+
+        raw_members = getattr(proxy, "_members", {}) or {}
+        members_by_norm = {_norm_member_key(name): info for name, info in raw_members.items()}
+        has_member_catalog = bool(members_by_norm)
+        if not has_member_catalog:
+            for cb in self.member_checkboxes.values():
+                cb.setEnabled(True)
+                cb.setChecked(True)
+            return
+
         for flag_name, cb in self.member_checkboxes.items():
-            member_name = flag_name.lower()
-            has_elements = False
-            info = proxy._members.get(member_name, {})
-            for group in info.get("elements", []):
-                if group:
-                    has_elements = True
-                    break
-            cb.setEnabled(has_elements)
-            cb.setChecked(has_elements)
+            info = members_by_norm.get(_norm_member_key(flag_name), None)
+            has_elements = _has_elements(info)
+            # Keep filters interactive when the file includes member metadata
+            # but uses naming that does not exactly match our enum labels.
+            unknown_mapping = has_member_catalog and info is None
+            cb.setEnabled(has_elements or unknown_mapping)
+            cb.setChecked(has_elements or unknown_mapping)
 
     def set_file_info(self, filename, summary):
         """Update the file info label."""
@@ -923,20 +1022,31 @@ class ResultsControlWidget(QWidget):
             "" if enabled else "QGroupBox { color: #999; }"
         )
 
-    def set_influence_mode(self, enabled):
-        """Show or hide influence-query controls."""
+    def set_influence_mode(self, enabled, result_kind=None):
+        """Show/hide influence-query controls and relevant IL/IS subsets."""
         self.influence_group.setVisible(enabled)
         self.loadcase_combo.setEnabled(not enabled)
-        for cb in self.member_checkboxes.values():
-            cb.setEnabled(not enabled)
+        show_line = enabled and result_kind == "influence_line"
+        show_surface = enabled and result_kind == "influence_surface"
+        if enabled and result_kind not in {"influence_line", "influence_surface"}:
+            show_line = True
+            show_surface = True
+        self.influence_line_group.setVisible(show_line)
+        self.influence_surface_group.setVisible(show_surface)
 
     def populate_influence_controls(self, ds):
         """Populate array/component/target selectors for an influence Dataset."""
         arrays = []
+        excluded_arrays = {"velocity", "velocities", "acceleration", "accelerations"}
         for name, da in ds.data_vars.items():
+            if str(name).lower() in excluded_arrays:
+                continue
             if "Loadcase" in da.dims and "Component" in da.dims:
                 if "Node" in da.dims or "Element" in da.dims:
-                    arrays.append(name)
+                    if _nonempty_components(da):
+                        arrays.append(name)
+        preferred_order = {"displacements": 0, "forces": 1}
+        arrays.sort(key=lambda array_name: (preferred_order.get(array_name, 99), str(array_name)))
 
         self.influence_array_combo.blockSignals(True)
         self.influence_array_combo.clear()
@@ -956,18 +1066,29 @@ class ResultsControlWidget(QWidget):
             self.influence_line_set_combo.setEnabled(False)
         self.influence_line_set_combo.blockSignals(False)
 
+        has_station_coords = {
+            "load_position_longitudinal_station",
+            "load_position_transverse_station",
+        }.issubset(set(ds.coords))
+        self.influence_surface_mode_combo.blockSignals(True)
+        self.influence_surface_mode_combo.clear()
+        self.influence_surface_mode_combo.addItem("Physical (x-z)", "physical")
+        if has_station_coords:
+            self.influence_surface_mode_combo.addItem(
+                "Stations (longitudinal-transverse)", "stations"
+            )
+        self.influence_surface_mode_combo.blockSignals(False)
+
         if arrays:
             self._update_influence_component_and_target(ds, arrays[0])
+        else:
+            self.influence_component_combo.blockSignals(True)
+            self.influence_component_combo.clear()
+            self.influence_component_combo.blockSignals(False)
 
     def _update_influence_component_and_target(self, ds, array_name):
         """Refresh component and target-id selectors from the selected array."""
         da = ds[array_name]
-
-        self.influence_component_combo.blockSignals(True)
-        self.influence_component_combo.clear()
-        for comp in da.coords["Component"].values:
-            self.influence_component_combo.addItem(str(comp))
-        self.influence_component_combo.blockSignals(False)
 
         target_types = []
         if "Node" in da.dims:
@@ -975,18 +1096,43 @@ class ResultsControlWidget(QWidget):
         if "Element" in da.dims:
             target_types.append("Element")
 
-        self.influence_target_type_combo.blockSignals(True)
-        self.influence_target_type_combo.clear()
-        for target_type in target_types:
-            self.influence_target_type_combo.addItem(target_type)
-        self.influence_target_type_combo.blockSignals(False)
+        if not target_types:
+            self._influence_target_type = None
+            self.influence_target_id_label.setText("Location ID")
+            self.influence_target_id_combo.blockSignals(True)
+            self.influence_target_id_combo.clear()
+            self.influence_target_id_combo.blockSignals(False)
+            self.influence_target_id_combo.setEnabled(False)
+            self.influence_target_id_combo.setToolTip(
+                f"No valid response location IDs are available for response '{array_name}'."
+            )
+            self.influence_component_combo.blockSignals(True)
+            self.influence_component_combo.clear()
+            self.influence_component_combo.blockSignals(False)
+            return
+
+        preferred = self._influence_target_type
+        if preferred not in target_types:
+            preferred = "Node" if "Node" in target_types else target_types[0]
+        self._influence_target_type = preferred
+        self.influence_target_id_label.setText(f"{preferred} ID")
+        self.influence_target_id_combo.setEnabled(True)
+        self.influence_target_id_combo.setToolTip(
+            f"Identifier of the selected {preferred.lower()} response location."
+        )
 
         self._update_influence_target_ids(ds, array_name)
+        self._update_influence_components(ds, array_name)
 
     def _update_influence_target_ids(self, ds, array_name):
         """Refresh target IDs when the target type changes."""
         da = ds[array_name]
-        target_type = self.influence_target_type_combo.currentText()
+        target_type = self._influence_target_type
+        if target_type is None:
+            self.influence_target_id_combo.blockSignals(True)
+            self.influence_target_id_combo.clear()
+            self.influence_target_id_combo.blockSignals(False)
+            return
         coord_name = "Node" if target_type == "Node" else "Element"
         target_ids = da.coords[coord_name].values if coord_name in da.coords else []
 
@@ -996,14 +1142,45 @@ class ResultsControlWidget(QWidget):
             self.influence_target_id_combo.addItem(str(int(target_id)))
         self.influence_target_id_combo.blockSignals(False)
 
+    def _update_influence_components(self, ds, array_name):
+        """Refresh component options for selected response array/location."""
+        da = ds[array_name]
+        target_type = self._influence_target_type
+        target_id = self.influence_target_id_combo.currentText()
+
+        da_for_components = da
+        if target_type == "Node" and "Node" in da.dims and target_id:
+            try:
+                da_for_components = da.sel(Node=int(target_id))
+            except Exception:
+                da_for_components = da
+        elif target_type == "Element" and "Element" in da.dims and target_id:
+            try:
+                da_for_components = da.sel(Element=int(target_id))
+            except Exception:
+                da_for_components = da
+
+        components = _nonempty_components(da_for_components)
+        if not components:
+            components = _nonempty_components(da)
+
+        self.influence_component_combo.blockSignals(True)
+        self.influence_component_combo.clear()
+        for comp in components:
+            self.influence_component_combo.addItem(str(comp))
+        self.influence_component_combo.blockSignals(False)
+
     def selected_influence_array(self):
         return self.influence_array_combo.currentText() or None
 
     def selected_influence_component(self):
-        return self.influence_component_combo.currentText() or None
+        component = self.influence_component_combo.currentText()
+        if not component:
+            return None
+        return component
 
     def selected_influence_target(self):
-        target_type = self.influence_target_type_combo.currentText()
+        target_type = self._influence_target_type
         target_id = self.influence_target_id_combo.currentText()
         if not target_type or not target_id:
             return None, None
@@ -1021,16 +1198,37 @@ class ResultsControlWidget(QWidget):
         return text
 
     def selected_influence_line_view(self):
-        return self.influence_line_view_combo.currentText() or "ordinate"
+        return self.influence_line_view_combo.currentText() or "path"
 
-    def selected_influence_surface_axes(self):
-        return (
-            self.influence_surface_x_combo.currentText() or "x",
-            self.influence_surface_y_combo.currentText() or "z",
-        )
+    def set_influence_line_axis_enabled(self, enabled: bool):
+        """Enable IL abscissa selection only when it affects the plot."""
+        self.influence_line_axis_combo.setEnabled(enabled)
+        if enabled:
+            self.influence_line_axis_combo.setToolTip(
+                "Influence-line abscissa. Use 'station' for cumulative path distance."
+            )
+        else:
+            self.influence_line_axis_combo.setToolTip(
+                "IL view='path' always uses station order along the load path."
+            )
+
+    def selected_influence_surface_mode(self):
+        mode = self.influence_surface_mode_combo.currentData()
+        if mode:
+            return str(mode)
+        text = self.influence_surface_mode_combo.currentText().lower()
+        if "station" in text:
+            return "stations"
+        return "physical"
 
     def selected_influence_surface_view(self):
         return self.influence_surface_view_combo.currentText() or "contour"
+
+    def is_influence_surface_layer_visible(self):
+        return self.influence_surface_show_layer_check.isChecked()
+
+    def is_influence_surface_hover_enabled(self):
+        return self.influence_surface_hover_check.isChecked()
 
 
 class BridgeAnalysisGUI(QMainWindow):
@@ -1213,7 +1411,8 @@ class BridgeAnalysisGUI(QMainWindow):
             "- influence lines: *.il.nc\n"
             "- influence surfaces: *.is.nc\n\n"
             "Tabs are enabled automatically by dataset type.\n"
-            "Influence-surface plots are rendered in physical x-z space.\n\n"
+            "Influence-surface plots default to physical x-z space "
+            "(or station grid if selected).\n\n"
             "ospgrillage v"
             + getattr(__import__("ospgrillage"), "__version__", "unknown"),
         )
@@ -1336,28 +1535,28 @@ class BridgeAnalysisGUI(QMainWindow):
         self.results_panel.influence_component_combo.currentIndexChanged.connect(
             self._on_results_control_changed
         )
-        self.results_panel.influence_target_type_combo.currentIndexChanged.connect(
-            self._on_influence_target_type_changed
-        )
         self.results_panel.influence_target_id_combo.currentIndexChanged.connect(
-            self._on_results_control_changed
+            self._on_influence_target_id_changed
         )
         self.results_panel.influence_line_set_combo.currentIndexChanged.connect(
             self._on_results_control_changed
         )
         self.results_panel.influence_line_view_combo.currentIndexChanged.connect(
-            self._on_results_control_changed
+            self._on_influence_line_view_changed
         )
         self.results_panel.influence_line_axis_combo.currentIndexChanged.connect(
             self._on_results_control_changed
         )
-        self.results_panel.influence_surface_x_combo.currentIndexChanged.connect(
-            self._on_influence_surface_axis_changed
-        )
-        self.results_panel.influence_surface_y_combo.currentIndexChanged.connect(
-            self._on_influence_surface_axis_changed
+        self.results_panel.influence_surface_mode_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
         )
         self.results_panel.influence_surface_view_combo.currentIndexChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.influence_surface_show_layer_check.stateChanged.connect(
+            self._on_results_control_changed
+        )
+        self.results_panel.influence_surface_hover_check.stateChanged.connect(
             self._on_results_control_changed
         )
         self.results_panel.btn_back.clicked.connect(self._switch_to_wizard)
@@ -1909,9 +2108,15 @@ from math import *
             loadcase_names = [str(lc) for lc in self._results.coords["Loadcase"].values]
         self.results_panel.populate_loadcases(loadcase_names)
         self.results_panel.update_available_members(self._model_proxy)
-        self.results_panel.set_influence_mode(self._results_kind != "ordinary")
+        self.results_panel.set_influence_mode(
+            self._results_kind != "ordinary",
+            self._results_kind,
+        )
         if self._results_kind != "ordinary":
             self.results_panel.populate_influence_controls(self._results)
+            self.results_panel.set_influence_line_axis_enabled(
+                self.results_panel.selected_influence_line_view() != "path"
+            )
 
         self.results_panel.set_file_info(summary_name, summary_text)
 
@@ -2002,31 +2207,19 @@ from math import *
             )
         self._on_results_control_changed()
 
-    def _on_influence_target_type_changed(self, _=None):
-        """Refresh influence target IDs when target type changes."""
+    def _on_influence_target_id_changed(self, _=None):
+        """Refresh influence components when target ID changes."""
         if self._results is None:
             return
         array_name = self.results_panel.selected_influence_array()
         if array_name:
-            self.results_panel._update_influence_target_ids(self._results, array_name)
+            self.results_panel._update_influence_components(self._results, array_name)
         self._on_results_control_changed()
 
-    def _on_influence_surface_axis_changed(self, _=None):
-        """Keep influence-surface axis selections distinct."""
-        x_coord, y_coord = self.results_panel.selected_influence_surface_axes()
-        if x_coord == y_coord:
-            combo = self.sender()
-            fallback = {"x", "y", "z"} - {x_coord}
-            preferred = "z" if x_coord != "z" else "x"
-            replacement = preferred if preferred in fallback else sorted(fallback)[0]
-            if combo is self.results_panel.influence_surface_x_combo:
-                self.results_panel.influence_surface_y_combo.blockSignals(True)
-                self.results_panel.influence_surface_y_combo.setCurrentText(replacement)
-                self.results_panel.influence_surface_y_combo.blockSignals(False)
-            else:
-                self.results_panel.influence_surface_x_combo.blockSignals(True)
-                self.results_panel.influence_surface_x_combo.setCurrentText(replacement)
-                self.results_panel.influence_surface_x_combo.blockSignals(False)
+    def _on_influence_line_view_changed(self, _=None):
+        """Keep IL abscissa control aligned with selected IL view mode."""
+        view_mode = self.results_panel.selected_influence_line_view()
+        self.results_panel.set_influence_line_axis_enabled(view_mode != "path")
         self._on_results_control_changed()
 
     def _refresh_current_result_tab(self):
@@ -2055,10 +2248,20 @@ from math import *
                 array_name = self.results_panel.selected_influence_array()
                 component = self.results_panel.selected_influence_component()
                 target_type, target_id = self.results_panel.selected_influence_target()
+                if not array_name or not component or target_id is None:
+                    raise ValueError(
+                        "Influence line selection is incomplete. "
+                        "Choose response array/component and a valid location."
+                    )
+                line_view = self.results_panel.selected_influence_line_view()
                 il_kwargs = dict(
                     array=array_name,
                     component=component,
-                    load_coord=self.results_panel.selected_influence_line_axis(),
+                    load_coord=(
+                        "station"
+                        if line_view == "path"
+                        else self.results_panel.selected_influence_line_axis()
+                    ),
                 )
                 if target_type == "Node":
                     il_kwargs["node"] = target_id
@@ -2095,14 +2298,33 @@ from math import *
                     backend="plotly",
                     show=False,
                     title=title,
-                    view=self.results_panel.selected_influence_line_view(),
+                    view=line_view,
                     dataset=self._results,
+                    members=members,
+                    show_nodes=True,
+                    show_node_labels=False,
+                    ordinate_aspect=0.9,
                 )
             elif label == "Influence Surface":
                 array_name = self.results_panel.selected_influence_array()
                 component = self.results_panel.selected_influence_component()
                 target_type, target_id = self.results_panel.selected_influence_target()
-                x_coord, y_coord = self.results_panel.selected_influence_surface_axes()
+                if not array_name or not component or target_id is None:
+                    raise ValueError(
+                        "Influence surface selection is incomplete. "
+                        "Choose response array/component and a valid location."
+                    )
+                show_surface_layer = self.results_panel.is_influence_surface_layer_visible()
+                enable_surface_hover = self.results_panel.is_influence_surface_hover_enabled()
+                selected_mode = self.results_panel.selected_influence_surface_mode()
+                x_coord, y_coord, coordinate_space = _resolve_influence_surface_axes(
+                    self._results, selected_mode
+                )
+                if selected_mode in {"station", "stations"} and coordinate_space != "station":
+                    self.statusbar.showMessage(
+                        "Station coordinates unavailable in this file; using physical x-z.",
+                        4000,
+                    )
                 is_kwargs = {
                     "ds": self._results,
                     "array": array_name,
@@ -2115,14 +2337,37 @@ from math import *
                 elif target_type == "Element":
                     is_kwargs["element"] = target_id
                 isurface = og.create_influence_surface(**is_kwargs).get()
-                fig = og.plot_is(
-                    isurface,
+                finite_count = int(np.isfinite(np.asarray(isurface.values, dtype=float)).sum())
+                if finite_count < 3:
+                    raise ValueError(
+                        "Selected component/location has too few valid points "
+                        "to build an influence surface. Choose another component."
+                    )
+                model_fig = og.plot_model(
+                    self._model_proxy,
                     backend="plotly",
                     show=False,
-                    title=f"{component} influence surface",
-                    view=self.results_panel.selected_influence_surface_view(),
-                    coordinate_space="physical",
+                    members=members,
+                    show_nodes=True,
+                    show_supports=True,
+                    show_rigid_links=True,
+                    title=None,
                 )
+                if show_surface_layer:
+                    fig = og.plot_is(
+                        isurface,
+                        backend="plotly",
+                        show=False,
+                        ax=model_fig,
+                        title=f"{component} influence surface",
+                        view=self.results_panel.selected_influence_surface_view(),
+                        coordinate_space=coordinate_space,
+                        opacity=0.78,
+                        surface_hover=enable_surface_hover,
+                    )
+                else:
+                    fig = model_fig
+                    fig.update_layout(title=f"{component} influence surface (model only)")
             elif label == "Shell Contour":
                 # Shell contour — reads directly from Dataset
                 comp = self.results_panel.contour_component_combo.currentText()

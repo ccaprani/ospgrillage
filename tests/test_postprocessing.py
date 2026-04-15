@@ -1,4 +1,5 @@
 import csv
+import json
 
 from ospgrillage import __version__ as version
 import ospgrillage.osp_grillage as og_model
@@ -290,6 +291,158 @@ def test_plot_influence_line_overlay_plotly():
     assert len(fig.data) == 2
 
 
+def test_plot_model_proxy_includes_shell_mesh_when_available():
+    go = pytest.importorskip("plotly.graph_objects")
+    ds = xr.Dataset(
+        data_vars={
+            "node_coordinates": (
+                ("Node", "Axis"),
+                np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [1.0, 0.0, 0.0],
+                        [1.0, 0.0, 1.0],
+                        [0.0, 0.0, 1.0],
+                    ]
+                ),
+            ),
+            "ele_nodes_shell": (
+                ("Element", "Nodes"),
+                np.array([[1.0, 2.0, 3.0, 4.0]]),
+            ),
+        },
+        coords={
+            "Node": [1, 2, 3, 4],
+            "Axis": ["x", "y", "z"],
+            "Element": [1],
+            "Nodes": [0, 1, 2, 3],
+        },
+        attrs={
+            "member_elements": "{}",
+            "model_type": "shell_beam",
+        },
+    )
+    proxy = og.model_proxy_from_results(ds)
+    fig = og.plot_model(proxy, backend="plotly", show=False)
+    assert isinstance(fig, go.Figure)
+    assert any(trace.type == "mesh3d" and trace.name == "shell_slab" for trace in fig.data)
+
+
+def test_plot_model_proxy_prefers_ele_nodes_connectivity_over_node_order():
+    go = pytest.importorskip("plotly.graph_objects")
+    member_elements = {
+        "interior_main_beam": {
+            "elements": [[1, 2]],
+            "nodes": [[[1, 3, 2]]],  # intentionally misordered
+        }
+    }
+    ds = xr.Dataset(
+        data_vars={
+            "node_coordinates": (
+                ("Node", "Axis"),
+                np.array(
+                    [
+                        [0.0, 0.0, 0.0],  # node 1
+                        [1.0, 0.0, 0.0],  # node 2
+                        [2.0, 0.0, 0.0],  # node 3
+                    ]
+                ),
+            ),
+            "ele_nodes": (
+                ("Element", "Nodes"),
+                np.array(
+                    [
+                        [1, 2],  # element 1
+                        [2, 3],  # element 2
+                    ]
+                ),
+            ),
+        },
+        coords={
+            "Node": [1, 2, 3],
+            "Axis": ["x", "y", "z"],
+            "Element": [1, 2],
+            "Nodes": [0, 1],
+        },
+        attrs={
+            "member_elements": json.dumps(member_elements),
+            "model_type": "beam_only",
+        },
+    )
+    proxy = og.model_proxy_from_results(ds)
+    fig = og.plot_model(proxy, backend="plotly", show=False, show_nodes=True)
+    assert isinstance(fig, go.Figure)
+    trace = next(t for t in fig.data if getattr(t, "name", "") == "interior_main_beam")
+    assert list(trace.x[:6]) == [0.0, 1.0, None, 1.0, 2.0, None]
+    non_null_text = [txt for txt in trace.text if txt is not None]
+    assert any("element:" in txt for txt in non_null_text)
+    assert any("nodes:" in txt for txt in non_null_text)
+    node_trace = next(t for t in fig.data if getattr(t, "name", "") == "nodes")
+    assert "node:" in str(node_trace.hovertemplate)
+    assert set(node_trace.text) == {"1", "2", "3"}
+
+
+def test_plot_model_plotly_member_filter_limits_visible_members():
+    go = pytest.importorskip("plotly.graph_objects")
+    member_elements = {
+        "interior_main_beam": {
+            "elements": [[1]],
+            "nodes": [[[1, 2]]],
+        },
+        "transverse_slab": {
+            "elements": [[2]],
+            "nodes": [[[2, 3]]],
+        },
+    }
+    ds = xr.Dataset(
+        data_vars={
+            "node_coordinates": (
+                ("Node", "Axis"),
+                np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [1.0, 0.0, 0.0],
+                        [2.0, 0.0, 0.0],
+                    ]
+                ),
+            ),
+            "ele_nodes": (
+                ("Element", "Nodes"),
+                np.array(
+                    [
+                        [1, 2],
+                        [2, 3],
+                    ]
+                ),
+            ),
+        },
+        coords={
+            "Node": [1, 2, 3],
+            "Axis": ["x", "y", "z"],
+            "Element": [1, 2],
+            "Nodes": [0, 1],
+        },
+        attrs={
+            "member_elements": json.dumps(member_elements),
+            "model_type": "beam_only",
+        },
+    )
+    proxy = og.model_proxy_from_results(ds)
+    fig = og.plot_model(
+        proxy,
+        backend="plotly",
+        show=False,
+        show_nodes=True,
+        members=og.Members.INTERIOR_MAIN_BEAM,
+    )
+    assert isinstance(fig, go.Figure)
+    names = {getattr(t, "name", "") for t in fig.data}
+    assert "interior_main_beam" in names
+    assert "transverse_slab" not in names
+    node_trace = next(t for t in fig.data if getattr(t, "name", "") == "nodes")
+    assert set(node_trace.text) == {"1", "2"}
+
+
 def test_plot_influence_surface_plotly():
     go = pytest.importorskip("plotly.graph_objects")
     isurface = xr.DataArray(
@@ -360,6 +513,41 @@ def test_plot_influence_surface_curved_physical_plotly_surface3d():
     assert isinstance(fig, go.Figure)
     assert len(fig.data) == 1
     assert fig.data[0].type == "mesh3d"
+
+
+def test_plot_influence_surface_plotly_overlay_on_model(bridge_model_42_negative):
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+    iss = example_bridge.analyze_influence_surfaces(name="Deck IS Default")
+    isurface = iss.get_surface(
+        array="forces",
+        component="Mz_i",
+        element=1,
+        x_coord="longitudinal_station",
+        y_coord="transverse_station",
+    )
+    proxy = og.model_proxy_from_results(iss.dataset)
+    model_fig = og.plot_model(proxy, backend="plotly", show=False, show_nodes=False)
+    fig = og.plot_is(
+        isurface,
+        backend="plotly",
+        show=False,
+        ax=model_fig,
+        coordinate_space="physical",
+        opacity=0.6,
+    )
+    assert isinstance(fig, go.Figure)
+    assert any(trace.type == "scatter3d" for trace in fig.data)
+    assert any(trace.type == "mesh3d" for trace in fig.data)
+    assert fig.layout.scene.aspectmode == "manual"
+    is_trace = next(
+        trace
+        for trace in fig.data
+        if trace.type == "mesh3d" and getattr(trace, "name", "") == "Influence Surface"
+    )
+    assert float(is_trace.colorbar.x) < 0.0
+    assert getattr(is_trace, "hoverinfo", None) == "skip"
 
 
 def test_analyze_influence_line_separate_results(bridge_model_42_negative):
@@ -448,6 +636,47 @@ def test_analyze_influence_lines_combines_named_paths(bridge_model_42_negative):
     )
     assert isinstance(fig, go.Figure)
     assert any(trace.type == "scatter3d" for trace in fig.data)
+    assert any(trace.type == "mesh3d" for trace in fig.data)
+    lane_2_trace = next(trace for trace in fig.data if getattr(trace, "name", "") == "Lane 2")
+    lane_2_base = next(trace for trace in fig.data if getattr(trace, "name", "") == "Lane 2 baseline")
+    assert lane_2_trace.mode == "lines"
+    assert lane_2_base.mode == "lines+markers"
+    assert np.allclose(np.asarray(lane_2_trace.y, dtype=float), [4.0, 4.0, 4.0])
+    assert np.allclose(np.asarray(lane_2_base.z, dtype=float), [0.0, 0.0, 0.0])
+
+
+def test_plot_il_path_fill_ignores_noise_and_gaps(bridge_model_42_negative):
+    go = pytest.importorskip("plotly.graph_objects")
+    og.ops.wipeAnalysis()
+    example_bridge = bridge_model_42_negative
+
+    ils = example_bridge.analyze_influence_lines(
+        name="Lane IL",
+        start_point=og.Point(2, 0, 2),
+        end_point=og.Point(8, 0, 2),
+        increments=7,
+    )
+    il = ils.get_line(array="displacements", component="y", node=25)
+    il_with_noise = il.copy(
+        data=np.asarray([1e-13, -1e-13, 5e-14, np.nan, np.nan, 0.1, -0.2], dtype=float)
+    )
+    x_vals = np.asarray(il_with_noise.coords["x"].values, dtype=float)
+
+    fig = og.plot_il(
+        il_with_noise,
+        backend="plotly",
+        view="path",
+        dataset=ils.dataset,
+        show=False,
+    )
+
+    mesh_traces = [trace for trace in fig.data if isinstance(trace, go.Mesh3d)]
+    assert len(mesh_traces) == 1
+    x_mesh = np.asarray(mesh_traces[0].x, dtype=float)
+    expected_min = min(x_vals[5], x_vals[6]) - 1e-9
+    expected_max = max(x_vals[5], x_vals[6]) + 1e-9
+    assert np.nanmin(x_mesh) >= expected_min
+    assert np.nanmax(x_mesh) <= expected_max
 
 
 def test_get_combined_influence_line_results(bridge_model_42_negative):

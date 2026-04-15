@@ -76,6 +76,56 @@ class _ModelProxy:
         # Build member-element mapping from JSON attr
         self._members = json.loads(ds.attrs.get("member_elements", "{}"))
 
+        # Optional beam element connectivity (element -> [node_i, node_j]) for
+        # robust model rendering from saved files even when member node lists are
+        # not ordered along the geometric line.
+        self._element_nodes = {}
+        ele_nodes = ds.get("ele_nodes", None)
+        if ele_nodes is not None:
+            ele_da = ele_nodes
+            for dim in list(ele_da.dims):
+                if dim not in {"Element", "Nodes"}:
+                    ele_da = ele_da.isel({dim: 0})
+            if {"Element", "Nodes"}.issubset(set(ele_da.dims)):
+                for ele_tag in ele_da.coords["Element"].values:
+                    node_vals = np.asarray(ele_da.sel(Element=ele_tag).values).tolist()
+                    node_tags = []
+                    for node_val in node_vals:
+                        try:
+                            node_f = float(node_val)
+                        except (TypeError, ValueError):
+                            continue
+                        if np.isnan(node_f):
+                            continue
+                        node_tags.append(int(node_f))
+                    if len(node_tags) >= 2:
+                        self._element_nodes[int(ele_tag)] = tuple(node_tags[:2])
+
+        # Optional shell connectivity (for shell-beam model visualisation when
+        # plotting from saved results files without a live OspGrillage object).
+        self._shell_element_nodes = []
+        ele_nodes_shell = ds.get("ele_nodes_shell", None)
+        if ele_nodes_shell is not None:
+            shell_da = ele_nodes_shell
+            for dim in list(shell_da.dims):
+                if dim not in {"Element", "Nodes"}:
+                    shell_da = shell_da.isel({dim: 0})
+            if {"Element", "Nodes"}.issubset(set(shell_da.dims)):
+                for node_row in np.asarray(shell_da.values):
+                    node_tags = []
+                    for node_tag in np.asarray(node_row).tolist():
+                        if node_tag is None:
+                            continue
+                        try:
+                            node_val = float(node_tag)
+                        except (TypeError, ValueError):
+                            continue
+                        if np.isnan(node_val):
+                            continue
+                        node_tags.append(int(node_val))
+                    if len(node_tags) >= 3:
+                        self._shell_element_nodes.append(tuple(node_tags))
+
         # Reconstruct common_grillage_element_z_group (member → list of
         # z-group indices, e.g. {"interior_main_beam": [0, 1, 2]}).
         self.common_grillage_element_z_group = {}
@@ -627,62 +677,225 @@ def _plot_il_path_plotly(lines, **kwargs):
             backend="plotly",
             show=False,
             title=kwargs.get("title", None),
-            show_nodes=kwargs.get("show_nodes", False),
+            members=kwargs.get("members", None),
+            show_nodes=kwargs.get("show_nodes", True),
+            show_node_labels=kwargs.get("show_node_labels", False),
             show_supports=kwargs.get("show_supports", True),
             show_rigid_links=kwargs.get("show_rigid_links", True),
         )
 
     scale = kwargs.get("scale", 1.0)
-    marker = kwargs.get("marker", None)
+    fill = kwargs.get("fill", True)
+    fill_alpha = kwargs.get("fill_alpha", 0.35)
+    marker = kwargs.get("marker", "circle")
+    show_top_markers = kwargs.get("show_top_markers", False)
+    show_path_markers = kwargs.get("show_path_markers", True)
     color = kwargs.get("color", None)
+    ordinate_aspect = float(kwargs.get("ordinate_aspect", 0.8))
+    default_colours = ["black", "blue", "red", "green", "orange", "purple", "brown", "grey"]
+
+    def _build_segmented_ribbon_mesh(x_vals, z_vals, base_vals, top_vals, eps=1e-12):
+        """Build a non-self-intersecting ribbon mesh between top and baseline.
+
+        The mesh is built per segment and explicitly split at ordinate
+        sign-changes (top crossing baseline) to avoid folded quads.
+        """
+        vertices = []
+        i_idx, j_idx, k_idx = [], [], []
+
+        def add_triangle(p0, p1, p2):
+            start = len(vertices)
+            vertices.extend([p0, p1, p2])
+            i_idx.append(start)
+            j_idx.append(start + 1)
+            k_idx.append(start + 2)
+
+        for seg_idx in range(len(x_vals) - 1):
+            x0, x1 = float(x_vals[seg_idx]), float(x_vals[seg_idx + 1])
+            y0, y1 = float(z_vals[seg_idx]), float(z_vals[seg_idx + 1])
+            b0, b1 = float(base_vals[seg_idx]), float(base_vals[seg_idx + 1])
+            t0, t1 = float(top_vals[seg_idx]), float(top_vals[seg_idx + 1])
+            o0 = t0 - b0
+            o1 = t1 - b1
+
+            if not np.isfinite([x0, x1, y0, y1, b0, b1, t0, t1]).all():
+                continue
+
+            if abs(o0) <= eps:
+                o0 = 0.0
+                t0 = b0
+            if abs(o1) <= eps:
+                o1 = 0.0
+                t1 = b1
+            if o0 == 0.0 and o1 == 0.0:
+                continue
+
+            p0_top = (x0, y0, t0)
+            p1_top = (x1, y1, t1)
+            p0_base = (x0, y0, b0)
+            p1_base = (x1, y1, b1)
+
+            if o0 == 0.0:
+                # Segment starts on baseline: one wedge triangle.
+                add_triangle(p0_base, p1_top, p1_base)
+                continue
+            if o1 == 0.0:
+                # Segment ends on baseline: one wedge triangle.
+                add_triangle(p0_top, p1_base, p0_base)
+                continue
+
+            if o0 * o1 > 0.0:
+                # Same sign: one quad = two triangles.
+                add_triangle(p0_top, p1_top, p0_base)
+                add_triangle(p1_top, p1_base, p0_base)
+                continue
+
+            # Ordinates change sign -> split at zero crossing.
+            alpha = abs(o0) / (abs(o0) + abs(o1))
+            xc = x0 + alpha * (x1 - x0)
+            yc = y0 + alpha * (y1 - y0)
+            bc = b0 + alpha * (b1 - b0)
+            p_cross = (xc, yc, bc)  # top == base at crossing
+
+            add_triangle(p0_top, p_cross, p0_base)
+            add_triangle(p1_top, p1_base, p_cross)
+
+        if not vertices:
+            return None
+        vertices = np.asarray(vertices, dtype=float)
+        return {
+            "x": vertices[:, 0],
+            "y": vertices[:, 1],
+            "z": vertices[:, 2],
+            "i": np.asarray(i_idx, dtype=int),
+            "j": np.asarray(j_idx, dtype=int),
+            "k": np.asarray(k_idx, dtype=int),
+        }
+
+    def _iter_valid_runs(mask):
+        start = None
+        for idx, is_valid in enumerate(mask):
+            if is_valid and start is None:
+                start = idx
+            elif not is_valid and start is not None:
+                if idx - start >= 2:
+                    yield start, idx
+                start = None
+        if start is not None and len(mask) - start >= 2:
+            yield start, len(mask)
 
     for idx, (label, da) in enumerate(lines):
         x_vals = np.asarray(da.coords["x"].values, dtype=float)
+        y_vals = (
+            np.asarray(da.coords["y"].values, dtype=float)
+            if "y" in da.coords
+            else np.zeros_like(x_vals, dtype=float)
+        )
         z_vals = np.asarray(da.coords["z"].values, dtype=float)
         ord_vals = np.asarray(da.values, dtype=float) * scale
+        base_vals = -y_vals
+        top_vals = base_vals + ord_vals
+        valid = (
+            np.isfinite(x_vals)
+            & np.isfinite(z_vals)
+            & np.isfinite(base_vals)
+            & np.isfinite(top_vals)
+        )
+        if np.count_nonzero(valid) < 2:
+            continue
 
+        x_plot = x_vals.copy()
+        z_plot = z_vals.copy()
+        base_plot = base_vals.copy()
+        top_plot = top_vals.copy()
+        x_plot[~valid] = np.nan
+        z_plot[~valid] = np.nan
+        base_plot[~valid] = np.nan
+        top_plot[~valid] = np.nan
+
+        if color is not None and not isinstance(color, (list, tuple)):
+            line_colour = color
+        elif isinstance(color, (list, tuple)):
+            line_colour = color[idx]
+        else:
+            line_colour = default_colours[idx % len(default_colours)]
         line_dict = None
         if color is not None and not isinstance(color, (list, tuple)):
-            line_dict = dict(color=color, width=6)
+            line_dict = dict(color=line_colour, width=6)
         elif isinstance(color, (list, tuple)):
-            line_dict = dict(color=color[idx], width=6)
+            line_dict = dict(color=line_colour, width=6)
         else:
-            line_dict = dict(width=6)
-        marker_dict = dict(symbol=marker, size=4) if marker else dict(size=4)
+            line_dict = dict(color=line_colour, width=6)
+        top_mode = "lines+markers" if show_top_markers else "lines"
+        top_marker_dict = dict(symbol=marker, size=4) if show_top_markers and marker else None
 
         fig.add_trace(
             go.Scatter3d(
-                x=x_vals,
-                y=z_vals,
-                z=ord_vals,
-                mode="lines+markers",
+                x=x_plot,
+                y=z_plot,
+                z=top_plot,
+                mode=top_mode,
                 line=line_dict,
-                marker=marker_dict,
+                marker=top_marker_dict,
                 name=label,
             )
         )
+        base_mode = "lines+markers" if show_path_markers else "lines"
+        base_marker = dict(symbol=marker, size=4) if show_path_markers and marker else None
         fig.add_trace(
             go.Scatter3d(
-                x=x_vals,
-                y=z_vals,
-                z=np.zeros_like(ord_vals),
-                mode="lines",
+                x=x_plot,
+                y=z_plot,
+                z=base_plot,
+                mode=base_mode,
                 line=dict(
-                    color=line_dict.get("color", "black"),
-                    width=1,
-                    dash="dot",
+                    color=line_colour,
+                    width=3,
                 ),
+                marker=base_marker,
                 name=f"{label} baseline",
                 showlegend=False,
             )
         )
+        if fill:
+            finite_ord = np.abs(top_vals[valid] - base_vals[valid])
+            ord_span = float(np.nanmax(finite_ord)) if finite_ord.size else 0.0
+            zero_tol = float(kwargs.get("zero_tol", max(1e-10, ord_span * 1e-12)))
+            for run_start, run_end in _iter_valid_runs(valid):
+                ribbon = _build_segmented_ribbon_mesh(
+                    x_vals=x_vals[run_start:run_end],
+                    z_vals=z_vals[run_start:run_end],
+                    base_vals=base_vals[run_start:run_end],
+                    top_vals=top_vals[run_start:run_end],
+                    eps=zero_tol,
+                )
+                if ribbon is None:
+                    continue
+                fig.add_trace(
+                    go.Mesh3d(
+                        x=ribbon["x"],
+                        y=ribbon["y"],
+                        z=ribbon["z"],
+                        i=ribbon["i"],
+                        j=ribbon["j"],
+                        k=ribbon["k"],
+                        color=line_colour,
+                        opacity=fill_alpha,
+                        flatshading=True,
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
 
+    aspect = _spatial_aspect_ratio(fig)
+    aspect["z"] = ordinate_aspect
     fig.update_layout(
         scene=dict(
             xaxis_title="x (m)",
             yaxis_title="z (m)",
             zaxis_title=kwargs.get("ylabel", "ordinate"),
-            aspectmode="data",
+            aspectmode="manual",
+            aspectratio=aspect,
         )
     )
     return fig
@@ -926,6 +1139,8 @@ def plot_is(isurface, **kwargs):
     view = kwargs.get("view", "contour")
     coordinate_space = kwargs.get("coordinate_space", "auto")
     contour_levels = kwargs.get("levels", 20)
+    opacity = kwargs.get("opacity", None)
+    ordinate_aspect = float(kwargs.get("ordinate_aspect", 0.8))
 
     plot_data = _prepare_influence_surface_plot_data(isurface, coordinate_space)
     z = plot_data["ordinate"]
@@ -988,8 +1203,12 @@ def plot_is(isurface, **kwargs):
         import plotly.graph_objects as go
 
         fig = kwargs.get("ax", None)
+        has_existing_traces = fig is not None and len(getattr(fig, "data", ())) > 0
+        surface_hover = bool(kwargs.get("surface_hover", not has_existing_traces))
         if fig is None:
             fig = go.Figure()
+        colorbar_x = kwargs.get("colorbar_x", -0.08 if has_existing_traces else 1.02)
+        colorbar_kw = dict(title="ordinate", x=colorbar_x, xanchor="right")
         if view == "surface3d":
             if use_triangulation:
                 fig.add_trace(
@@ -1002,14 +1221,15 @@ def plot_is(isurface, **kwargs):
                         k=tri_data["triangles"][:, 2],
                         intensity=tri_data["z"],
                         colorscale=colorscale,
-                        colorbar=dict(title="ordinate"),
+                        colorbar=colorbar_kw,
                         showscale=True,
                         name="Influence Surface",
                         hovertemplate=(
                             f"{xlabel}: %{{x:.3f}}<br>"
                             f"{ylabel}: %{{y:.3f}}<br>"
                             "ordinate: %{intensity:.3g}<extra></extra>"
-                        ),
+                        ) if surface_hover else None,
+                        hoverinfo="skip" if not surface_hover else None,
                     )
                 )
             else:
@@ -1019,7 +1239,8 @@ def plot_is(isurface, **kwargs):
                         y=y_grid,
                         z=z,
                         colorscale=colorscale,
-                        colorbar=dict(title="ordinate"),
+                        colorbar=colorbar_kw,
+                        hoverinfo="skip" if not surface_hover else None,
                     )
                 )
             fig.update_layout(
@@ -1028,10 +1249,15 @@ def plot_is(isurface, **kwargs):
                     xaxis_title=xlabel,
                     yaxis_title=ylabel,
                     zaxis_title="ordinate",
+                    aspectmode="manual",
+                    aspectratio=dict(x=1, y=1, z=ordinate_aspect),
                 ),
             )
         else:
             if use_triangulation:
+                mesh_kwargs = {}
+                if opacity is not None:
+                    mesh_kwargs["opacity"] = opacity
                 fig.add_trace(
                     go.Mesh3d(
                         x=tri_data["x"],
@@ -1042,14 +1268,16 @@ def plot_is(isurface, **kwargs):
                         k=tri_data["triangles"][:, 2],
                         intensity=tri_data["z"],
                         colorscale=colorscale,
-                        colorbar=dict(title="ordinate"),
+                        colorbar=colorbar_kw,
                         showscale=True,
                         name="Influence Surface",
                         hovertemplate=(
                             f"{xlabel}: %{{x:.3f}}<br>"
                             f"{ylabel}: %{{y:.3f}}<br>"
                             "ordinate: %{intensity:.3g}<extra></extra>"
-                        ),
+                        ) if surface_hover else None,
+                        hoverinfo="skip" if not surface_hover else None,
+                        **mesh_kwargs,
                     )
                 )
                 fig.update_layout(
@@ -1070,6 +1298,14 @@ def plot_is(isurface, **kwargs):
                         ),
                     ),
                 )
+                aspect = _spatial_aspect_ratio(fig)
+                aspect["z"] = ordinate_aspect
+                fig.update_layout(
+                    scene=dict(
+                        aspectmode="manual",
+                        aspectratio=aspect,
+                    )
+                )
             else:
                 fig.add_trace(
                     go.Heatmap(
@@ -1077,7 +1313,8 @@ def plot_is(isurface, **kwargs):
                         y=y_grid[:, 0],
                         z=z,
                         colorscale=colorscale,
-                        colorbar=dict(title="ordinate"),
+                        colorbar=colorbar_kw,
+                        hoverinfo="skip" if not surface_hover else None,
                     )
                 )
                 fig.update_layout(
@@ -3178,14 +3415,14 @@ def _extract_mesh_data(grillage_obj):
     Returns
     -------
     data : dict[str, list[tuple]]
-        ``{member_name: [(node_i_xyz, node_j_xyz, ele_tag), ...]}``
+        ``{member_name: [(node_i_xyz, node_j_xyz, ele_tag, node_i_tag, node_j_tag), ...]}``
     all_nodes : dict[int, list]
         ``{node_tag: [x, y, z]}``
     quads : list[tuple]
         ``[(c1, c2, c3, c4), ...]`` where each ``ci`` is ``[x, y, z]``.
         Non-empty only for shell-type meshes.
     """
-    data = {}  # member_name -> list of (coord_i, coord_j, ele_tag)
+    data = {}  # member_name -> list of (coord_i, coord_j, ele_tag, node_i_tag, node_j_tag)
     all_nodes = {}  # node_tag -> [x, y, z]
     if hasattr(grillage_obj, "Mesh_obj"):
         mesh = grillage_obj.Mesh_obj
@@ -3198,7 +3435,7 @@ def _extract_mesh_data(grillage_obj):
                 tag, ni, nj = ele[0], ele[1], ele[2]
                 ci = node_spec[ni]["coordinate"]
                 cj = node_spec[nj]["coordinate"]
-                entries.append((ci, cj, tag))
+                entries.append((ci, cj, tag, int(ni), int(nj)))
                 all_nodes[ni] = ci
                 all_nodes[nj] = cj
 
@@ -3248,30 +3485,119 @@ def _extract_mesh_data(grillage_obj):
 
     if isinstance(grillage_obj, _ModelProxy):
         node_spec = grillage_obj._node_spec
+        element_node_map = getattr(grillage_obj, "_element_nodes", {})
+
+        def _flatten_numeric(values):
+            flat = []
+            stack = list(values) if isinstance(values, list) else [values]
+            while stack:
+                item = stack.pop(0)
+                if isinstance(item, list):
+                    stack = list(item) + stack
+                    continue
+                try:
+                    flat.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+            return flat
+
         for member_name, info in grillage_obj._members.items():
             entries = data.setdefault(member_name, [])
             element_groups = info.get("elements", [])
             node_groups = info.get("nodes", [])
             for group_idx, nodes in enumerate(node_groups):
-                if nodes and isinstance(nodes[0], list):
-                    nodes = nodes[0]
-                if not nodes or len(nodes) < 2:
-                    continue
                 elements = (
                     element_groups[group_idx] if group_idx < len(element_groups) else []
                 )
+                element_ids = _flatten_numeric(elements)
+
+                added_from_elements = False
+                if element_ids and element_node_map:
+                    for etag in element_ids:
+                        node_pair = element_node_map.get(int(etag))
+                        if not node_pair or len(node_pair) < 2:
+                            continue
+                        ni, nj = int(node_pair[0]), int(node_pair[1])
+                        if ni not in node_spec or nj not in node_spec:
+                            continue
+                        ci = node_spec[ni]["coordinate"]
+                        cj = node_spec[nj]["coordinate"]
+                        entries.append((ci, cj, int(etag), ni, nj))
+                        all_nodes[ni] = ci
+                        all_nodes[nj] = cj
+                        added_from_elements = True
+                if added_from_elements:
+                    continue
+
+                if nodes and isinstance(nodes, list) and len(nodes) == 1 and isinstance(nodes[0], list):
+                    nodes = nodes[0]
+                if not nodes or len(nodes) < 2:
+                    continue
+
+                if (
+                    isinstance(nodes[0], list)
+                    and all(isinstance(seg, list) and len(seg) >= 2 for seg in nodes)
+                ):
+                    for seg_idx, seg in enumerate(nodes):
+                        ni = int(seg[0])
+                        nj = int(seg[1])
+                        if ni not in node_spec or nj not in node_spec:
+                            continue
+                        ci = node_spec[ni]["coordinate"]
+                        cj = node_spec[nj]["coordinate"]
+                        tag = int(elements[seg_idx]) if seg_idx < len(elements) else seg_idx + 1
+                        entries.append((ci, cj, tag, ni, nj))
+                        all_nodes[ni] = ci
+                        all_nodes[nj] = cj
+                    continue
+
                 for seg_idx, (ni, nj) in enumerate(zip(nodes[:-1], nodes[1:])):
                     ni = int(ni)
                     nj = int(nj)
+                    if ni not in node_spec or nj not in node_spec:
+                        continue
                     ci = node_spec[ni]["coordinate"]
                     cj = node_spec[nj]["coordinate"]
                     tag = int(elements[seg_idx]) if seg_idx < len(elements) else seg_idx + 1
-                    entries.append((ci, cj, tag))
+                    entries.append((ci, cj, tag, ni, nj))
                     all_nodes[ni] = ci
                     all_nodes[nj] = cj
-        return data, all_nodes, [], []
+        quads = []
+        for shell_nodes in getattr(grillage_obj, "_shell_element_nodes", []):
+            coords = []
+            valid = True
+            for node_tag in shell_nodes:
+                node_info = node_spec.get(int(node_tag))
+                if node_info is None:
+                    valid = False
+                    break
+                coord = node_info["coordinate"]
+                coords.append(coord)
+                all_nodes[int(node_tag)] = coord
+            if valid and len(coords) >= 3:
+                quads.append(tuple(coords))
+        return data, all_nodes, quads, []
 
     raise TypeError("Unsupported grillage object for mesh extraction")
+
+
+def _filter_member_geometry(data, members):
+    """Filter extracted mesh geometry to selected member groups."""
+    if members is None:
+        return data
+    selected_names = set(_resolve_members(members, backend="plotly"))
+    return {name: elements for name, elements in data.items() if name in selected_names}
+
+
+def _visible_node_ids_from_member_data(data):
+    """Return node tags referenced by currently visible member line segments."""
+    node_ids = set()
+    for elements in data.values():
+        for element_entry in elements:
+            if len(element_entry) >= 5:
+                node_ids.add(int(element_entry[3]))
+                node_ids.add(int(element_entry[4]))
+    return node_ids
 
 
 def _plot_model_matplotlib(
@@ -3279,6 +3605,7 @@ def _plot_model_matplotlib(
     *,
     figsize=None,
     ax=None,
+    members=None,
     title=_AUTO,
     show_nodes=True,
     show_node_labels=False,
@@ -3290,6 +3617,14 @@ def _plot_model_matplotlib(
 ):
     """Render a 2-D plan view (x vs z) of the grillage mesh."""
     data, all_nodes, quads, links = _extract_mesh_data(grillage_obj)
+    data = _filter_member_geometry(data, members)
+    if members is not None:
+        visible_nodes = _visible_node_ids_from_member_data(data)
+        all_nodes = {
+            node_tag: coord
+            for node_tag, coord in all_nodes.items()
+            if node_tag in visible_nodes
+        }
 
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -3322,7 +3657,8 @@ def _plot_model_matplotlib(
             if color_by_member
             else "k"
         )
-        for ci, cj, etag in elements:
+        for element_entry in elements:
+            ci, cj, etag = element_entry[:3]
             ax.plot([ci[0], cj[0]], [ci[2], cj[2]], "-", color=colour, linewidth=1)
             if show_element_labels:
                 mx = 0.5 * (ci[0] + cj[0])
@@ -3450,6 +3786,7 @@ def _plot_model_plotly(
     *,
     fig=None,
     figsize=None,
+    members=None,
     title=_AUTO,
     show_nodes=True,
     show_node_labels=False,
@@ -3465,6 +3802,14 @@ def _plot_model_plotly(
         fig = go.Figure()
 
     data, all_nodes, quads, links = _extract_mesh_data(grillage_obj)
+    data = _filter_member_geometry(data, members)
+    if members is not None:
+        visible_nodes = _visible_node_ids_from_member_data(data)
+        all_nodes = {
+            node_tag: coord
+            for node_tag, coord in all_nodes.items()
+            if node_tag in visible_nodes
+        }
 
     colours = ["grey", "blue", "green", "blue", "red", "red", "orange"]
     colour_map = dict(zip(_MEMBER_COLOURS.keys(), colours))
@@ -3472,11 +3817,19 @@ def _plot_model_plotly(
     # Draw elements grouped by member
     for member_name, elements in data.items():
         colour = colour_map.get(member_name, "black") if color_by_member else "black"
-        xs, ys, zs = [], [], []
-        for ci, cj, etag in elements:
+        xs, ys, zs, hover_text = [], [], [], []
+        for element_entry in elements:
+            ci, cj, etag = element_entry[:3]
+            ni = int(element_entry[3]) if len(element_entry) > 3 else None
+            nj = int(element_entry[4]) if len(element_entry) > 4 else None
             xs.extend([ci[0], cj[0], None])
             ys.extend([ci[2], cj[2], None])
             zs.extend([-ci[1], -cj[1], None])
+            if ni is not None and nj is not None:
+                text = f"member: {member_name}<br>element: {etag}<br>nodes: {ni}-{nj}"
+            else:
+                text = f"member: {member_name}<br>element: {etag}"
+            hover_text.extend([text, text, None])
         fig.add_trace(
             go.Scatter3d(
                 x=xs,
@@ -3485,6 +3838,13 @@ def _plot_model_plotly(
                 mode="lines",
                 line=dict(color=colour, width=3),
                 name=member_name,
+                text=hover_text,
+                hovertemplate=(
+                    "%{text}<br>"
+                    "x: %{x:.3f}<br>"
+                    "z: %{y:.3f}<br>"
+                    "plot y: %{z:.3f}<extra></extra>"
+                ),
             )
         )
 
@@ -3548,7 +3908,8 @@ def _plot_model_plotly(
         nx = [all_nodes[n][0] for n in ntags]
         ny = [all_nodes[n][2] for n in ntags]
         nz = [-all_nodes[n][1] for n in ntags]
-        text = [str(n) for n in ntags] if show_node_labels else None
+        text = [str(n) for n in ntags]
+        node_y = [all_nodes[n][1] for n in ntags]
         mode = "markers+text" if show_node_labels else "markers"
         fig.add_trace(
             go.Scatter3d(
@@ -3558,10 +3919,17 @@ def _plot_model_plotly(
                 mode=mode,
                 marker=dict(size=2, color="black"),
                 text=text,
+                customdata=np.asarray(node_y, dtype=float),
                 textposition="top center",
                 textfont=dict(size=8),
                 name="nodes",
                 showlegend=False,
+                hovertemplate=(
+                    "node: %{text}<br>"
+                    "x: %{x:.3f}<br>"
+                    "z: %{y:.3f}<br>"
+                    "y: %{customdata:.3f}<extra></extra>"
+                ),
             )
         )
 
@@ -3569,7 +3937,8 @@ def _plot_model_plotly(
     if show_element_labels:
         ex, ey, ez, etexts = [], [], [], []
         for member_name, elements in data.items():
-            for ci, cj, etag in elements:
+            for element_entry in elements:
+                ci, cj, etag = element_entry[:3]
                 ex.append(0.5 * (ci[0] + cj[0]))
                 ey.append(0.5 * (ci[2] + cj[2]))
                 ez.append(-0.5 * (ci[1] + cj[1]))
@@ -3693,6 +4062,7 @@ def plot_model(grillage_obj, *, backend="matplotlib", **kwargs):
             in (
                 "fig",
                 "figsize",
+                "members",
                 "title",
                 "show_nodes",
                 "show_node_labels",
@@ -3717,6 +4087,7 @@ def plot_model(grillage_obj, *, backend="matplotlib", **kwargs):
             in (
                 "figsize",
                 "ax",
+                "members",
                 "title",
                 "show_nodes",
                 "show_node_labels",

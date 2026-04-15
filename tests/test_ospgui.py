@@ -82,3 +82,61 @@ def test_ospgui_results_kind_classifier():
         attrs={"influence_name": "Lane IL"},
     )
     assert mod._classify_results_kind(legacy_line) == "influence_line"
+
+
+def test_ospgui_resolve_influence_surface_axes():
+    mod = importlib.import_module("ospgrillage.ospgui")
+
+    ds_with_station = xr.Dataset(
+        coords={
+            "Loadcase": [0, 1, 2, 3],
+            "load_position_longitudinal_station": ("Loadcase", [0, 0, 1, 1]),
+            "load_position_transverse_station": ("Loadcase", [0, 1, 0, 1]),
+        }
+    )
+    assert mod._resolve_influence_surface_axes(ds_with_station, "stations") == (
+        "longitudinal_station",
+        "transverse_station",
+        "station",
+    )
+    assert mod._resolve_influence_surface_axes(ds_with_station, "physical") == (
+        "longitudinal_station",
+        "transverse_station",
+        "physical",
+    )
+
+    ds_without_station = xr.Dataset(
+        coords={
+            "Loadcase": [0, 1],
+            "load_position_x": ("Loadcase", [0.0, 1.0]),
+            "load_position_z": ("Loadcase", [2.0, 2.0]),
+        }
+    )
+    assert mod._resolve_influence_surface_axes(ds_without_station, "stations") == (
+        "x",
+        "z",
+        "physical",
+    )
+    assert mod._resolve_influence_surface_axes(ds_without_station, "physical") == (
+        "x",
+        "z",
+        "physical",
+    )
+
+
+def test_ospgui_nonempty_components_filters_nan_components():
+    mod = importlib.import_module("ospgrillage.ospgui")
+
+    da = xr.DataArray(
+        data=[
+            [[1.0, float("nan"), 2.0], [3.0, float("nan"), 4.0]],
+            [[5.0, float("nan"), 6.0], [7.0, float("nan"), 8.0]],
+        ],
+        dims=("Loadcase", "Node", "Component"),
+        coords={
+            "Loadcase": [0, 1],
+            "Node": [10, 11],
+            "Component": ["x", "theta", "y"],
+        },
+    )
+    assert mod._nonempty_components(da) == ["x", "y"]
