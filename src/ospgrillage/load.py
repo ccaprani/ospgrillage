@@ -1850,3 +1850,78 @@ class ShapeFunction:
         N2 = a2 + b2 * x + c2 * z
         N3 = a3 + b3 * x + c3 * z
         return [N1, N2, N3]
+
+    @staticmethod
+    def dkt_triangle_shape_function(x, z, x1, z1, x2, z2, x3, z3):
+        """
+        Compute a DKT-style concentrated-load shape-function vector for a 3-node triangle.
+
+        The interpolation follows the discrete Kirchhoff triangle edge assumptions:
+        the tangential edge rotations follow the cubic Hermite beam interpolation on
+        each triangle edge, and the three corner vertical coefficients are recovered
+        from rigid-body reproduction in the global ``(x, z)`` plane. The resulting
+        nine coefficients map directly to the grillage nodal load tuple
+        ``(Fy, Mx, Mz)`` for each corner node.
+
+        Parameters
+        ----------
+        x, z : float
+            Evaluation point in the grillage plane.
+        x1, z1, x2, z2, x3, z3 : float
+            Triangle corner coordinates ordered counter-clockwise.
+
+        Returns
+        -------
+        tuple of list
+            ``(Nv, Nmx, Nmz)`` where:
+
+            - ``Nv`` are the vertical-force coefficients for the three corner nodes
+            - ``Nmx`` are the coefficients conjugate to rotation about the global x-axis
+            - ``Nmz`` are the coefficients conjugate to rotation about the global z-axis
+
+        Notes
+        -----
+        In the package model plane ``(x, z)``, the DKT bending rotations associated with
+        the first in-plane direction map to nodal ``Mz`` loads, while the second in-plane
+        direction maps to nodal ``Mx`` loads.
+        """
+        # Barycentric coordinates L1, L2, L3 for the point.
+        L1, L2, L3 = ShapeFunction.linear_triangular(
+            x=x, z=z, x1=x1, z1=z1, x2=x2, z2=z2, x3=x3, z3=z3
+        )
+
+        def _edge_data(xi, zi, xj, zj):
+            dx = xj - xi
+            dz = zj - zi
+            length = float(np.hypot(dx, dz))
+            return length, dx / length, dz / length
+
+        # Edge numbering follows the DKT appendix: 4 -> 23, 5 -> 31, 6 -> 12.
+        l23, c23, s23 = _edge_data(x2, z2, x3, z3)
+        l31, c31, s31 = _edge_data(x3, z3, x1, z1)
+        l12, c12, s12 = _edge_data(x1, z1, x2, z2)
+
+        # Cubic Hermite edge rotation terms written in barycentric form.
+        # These reduce exactly to the 1D beam-consistent edge coefficients when the
+        # evaluation point lies on a triangle edge.
+        Nmz = [
+            c12 * l12 * L1**2 * L2 - c31 * l31 * L3 * L1**2,
+            c23 * l23 * L2**2 * L3 - c12 * l12 * L1 * L2**2,
+            c31 * l31 * L3**2 * L1 - c23 * l23 * L2 * L3**2,
+        ]
+        Nmx = [
+            s12 * l12 * L1**2 * L2 - s31 * l31 * L3 * L1**2,
+            s23 * l23 * L2**2 * L3 - s12 * l12 * L1 * L2**2,
+            s31 * l31 * L3**2 * L1 - s23 * l23 * L2 * L3**2,
+        ]
+
+        # Recover the corner vertical coefficients from rigid-body reproduction:
+        # the interpolation must reproduce constant displacement and the linear
+        # fields w=x and w=z exactly.
+        coeff_matrix = np.array(
+            [[1.0, 1.0, 1.0], [x1, x2, x3], [z1, z2, z3]], dtype=float
+        )
+        rhs = np.array([1.0, x - sum(Nmz), z - sum(Nmx)], dtype=float)
+        Nv = np.linalg.solve(coeff_matrix, rhs).tolist()
+
+        return Nv, Nmx, Nmz
